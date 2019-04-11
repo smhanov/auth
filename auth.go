@@ -145,15 +145,9 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		panic(newErrorF(http.StatusBadRequest, "blank password"))
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
-	if err != nil {
-		panic(err)
-	}
+	userid := tx.CreatePasswordUser(email, HashPassword(password))
 
-	userid := tx.CreatePasswordUser(email, string(hash))
-
-	signInUser(tx, w, userid, true)
-	tx.Commit()
+	SignInUser(tx, w, userid, true)
 }
 
 func (a *Handler) getUserID(tx Tx, r *http.Request) int64 {
@@ -190,8 +184,11 @@ func (a *Handler) handleUserSignout(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func signInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool) {
-	cookie := makeCookie()
+// SignInUser performs the final steps of signing in an authenticated user,
+// including creating a session and outputing the user info structure as JSON.
+// It also commits the transaction.
+func SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool) {
+	cookie := MakeCookie()
 	tx.SignIn(userid, cookie)
 
 	info := tx.GetInfo(userid, newAccount)
@@ -200,6 +197,8 @@ func signInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool) {
 	cookieVal := http.Cookie{Name: "session", Value: cookie,
 		Path: "/", Expires: expiration}
 	http.SetCookie(w, &cookieVal)
+
+	tx.Commit()
 
 	SendJSON(w, info)
 }
@@ -235,8 +234,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	signInUser(tx, w, userid, created)
-	tx.Commit()
+	SignInUser(tx, w, userid, created)
 }
 
 func (a *Handler) handleUserUpdate(w http.ResponseWriter, req *http.Request) {
@@ -256,12 +254,7 @@ func (a *Handler) handleUserUpdate(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if password != "" {
-		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
-		if err != nil {
-			panic(err)
-		}
-
-		tx.UpdatePassword(userid, string(hash))
+		tx.UpdatePassword(userid, HashPassword(password))
 	}
 
 	tx.Commit()
@@ -329,7 +322,7 @@ func (a *Handler) handleUserForgotPassword(w http.ResponseWriter, r *http.Reques
 		panic(newErrorF(400, "url must contain ${TOKEN}"))
 	}
 
-	token := makeCookie()
+	token := MakeCookie()
 	tx.CreatePasswordResetToken(userid, token, time.Now().Unix()+5*24*60*60)
 
 	url = strings.Replace(url, "${TOKEN}", token, -1)
@@ -355,14 +348,8 @@ func (a *Handler) handleUserResetPassword(w http.ResponseWriter, r *http.Request
 		panic(newErrorF(400, "blank password"))
 	}
 
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
-	if err != nil {
-		panic(err)
-	}
-
-	tx.UpdatePassword(userid, string(hash))
-	signInUser(tx, w, userid, false)
-	tx.Commit()
+	tx.UpdatePassword(userid, HashPassword(password))
+	SignInUser(tx, w, userid, false)
 }
 
 // New creates a new Handler

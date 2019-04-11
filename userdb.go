@@ -81,10 +81,11 @@ func (tx UserTx) GetID(cookie string) int64 {
 // email, and settings.
 func (tx UserTx) GetInfo(userid int64, newAccount bool) UserInfo {
 	type info struct {
-		Userid   int64    `json:"userid"`
-		Email    string   `json:"email"`
-		Settings string   `json:"settings"`
-		Methods  []string `json:"methods"`
+		Userid     int64    `json:"userid"`
+		Email      string   `json:"email"`
+		Settings   string   `json:"settings"`
+		Methods    []string `json:"methods"`
+		NewAccount bool     `json:"newAccount"`
 	}
 
 	query := `
@@ -99,6 +100,7 @@ func (tx UserTx) GetInfo(userid int64, newAccount bool) UserInfo {
 	}
 
 	i.Methods = tx.GetOauthMethods(userid)
+	i.NewAccount = newAccount
 	if i.Methods == nil {
 		i.Methods = make([]string, 0, 0)
 	}

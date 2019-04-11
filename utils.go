@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"runtime/debug"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 type httpError struct {
@@ -95,7 +97,18 @@ func stringWithCharset(length int, charset string) string {
 	return string(b)
 }
 
-// MakeCookie generates a cookie
-func makeCookie() string {
+// MakeCookie generates a long random string suitable for use as a session cookie
+func MakeCookie() string {
 	return stringWithCharset(64, charset)
+}
+
+// HashPassword computes the salted, hashed password using bcypt.
+// Panics on error.
+func HashPassword(password string) string {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	if err != nil {
+		panic(err)
+	}
+
+	return string(hash)
 }
