@@ -24,18 +24,21 @@ func newErrorF(status int, fmtStr string, args ...interface{}) httpError {
 }
 
 // SendJSON will write a json response
+// You don't need to use this but it's handy to have!
 func SendJSON(w http.ResponseWriter, thing interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(thing)
 }
 
 // SendError writes an error as a status to the output
+// You don't need to use this but it's handy to have!
 func SendError(w http.ResponseWriter, status int, err error) {
 	w.Header().Set("Status", err.Error())
 	w.WriteHeader(status)
 }
 
 // CORS wraps an HTTP request handler, adding appropriate cors headers.
+// If CORS is desired, you can wrap the handler with it.
 func CORS(fn http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if origin := r.Header.Get("Origin"); origin != "" {

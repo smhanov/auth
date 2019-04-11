@@ -152,7 +152,7 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 
 	userid := tx.CreatePasswordUser(email, string(hash))
 
-	SignInUser(tx, w, userid, true)
+	signInUser(tx, w, userid, true)
 	tx.Commit()
 }
 
@@ -190,9 +190,7 @@ func (a *Handler) handleUserSignout(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// SignInUser assumes the user has been authenticated, and performs
-// the steps of creating a session and returning user info the user.
-func SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool) {
+func signInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool) {
 	cookie := makeCookie()
 	tx.SignIn(userid, cookie)
 
@@ -237,7 +235,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	SignInUser(tx, w, userid, created)
+	signInUser(tx, w, userid, created)
 	tx.Commit()
 }
 
@@ -363,7 +361,7 @@ func (a *Handler) handleUserResetPassword(w http.ResponseWriter, r *http.Request
 	}
 
 	tx.UpdatePassword(userid, string(hash))
-	SignInUser(tx, w, userid, false)
+	signInUser(tx, w, userid, false)
 	tx.Commit()
 }
 
@@ -376,5 +374,5 @@ func New(db DB, settings Settings) http.Handler {
 		}
 	}
 
-	return recoverErrors(CORS(&Handler{settings, db}))
+	return recoverErrors(&Handler{settings, db})
 }

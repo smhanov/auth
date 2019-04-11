@@ -79,6 +79,11 @@ token generated in the email message.
 It will update the user's password and also sign them in, returning
 UserInfo.
 
+## Database tables
+Auth will automatically create database tables if they do not exist to hold
+users, sessions, oauth data, and password reset tokens. Passwords are stored
+as salted values returned by bcrypt. You can see the schema in schema.go
+
 
 
 * * *
