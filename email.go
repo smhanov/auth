@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"log"
 	"net/smtp"
 	"net/textproto"
 	"strings"
@@ -17,6 +18,11 @@ func sendEmail(settings Settings, addr string, url string) {
 		Headers: textproto.MIMEHeader{},
 	}
 
-	e.Send(settings.SMTPServer, smtp.PlainAuth("", settings.SMTPUser, settings.SMTPPassword,
+	log.Printf("Sending email using %s:%s", settings.SMTPUser, settings.SMTPPassword)
+	err := e.Send(settings.SMTPServer, smtp.PlainAuth("", settings.SMTPUser, settings.SMTPPassword,
 		strings.Split(settings.SMTPServer, ":")[0]))
+	if err != nil {
+		log.Printf("Error sending email:")
+		log.Panic(err)
+	}
 }
