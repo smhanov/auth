@@ -9,13 +9,16 @@ import (
 	"github.com/smhanov/auth"
 )
 
+const gmailUser = "support@awesomepeaches.com"
+const gmailPassword = "awernmx32hdkssk2mssxx" // app password from google
+
 func Example() {
 	// configure how to send password reset emails
 
 	settings := auth.DefaultSettings
 	settings.SMTPServer = "smtp.gmail.com:587"
-	settings.SMTPUser = "support@awesomepeaches.com"
-	settings.SMTPPassword = "awernmx32hdkssk2mssxx" // app password from google
+	settings.SMTPUser = gmailUser
+	settings.SMTPPassword = gmailPassword
 	settings.ForgotPasswordSubject = "Password reset from awesomepeaches.com"
 	settings.ForgotPasswordBody = "Please go to this url to reset your password:\n\n   ${URL}"
 	settings.EmailFrom = "support@awesomepeaches.com"
