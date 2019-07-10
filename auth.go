@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 // Settings is the settings for the auth package
@@ -24,6 +22,10 @@ type Settings struct {
 
 	// Alternatively, you can use this to send email
 	SendEmailFn func(email string, url string)
+
+	// Optionally override password hash from bcrypt default.
+	CompareHashedPasswordFn func(hashedRealPassword, candidatePassword string) error
+	HashPasswordFn          func(password string) string
 }
 
 // DefaultSettings provide some reasonable defaults
@@ -88,7 +90,9 @@ type Handler struct {
 }
 
 func (a *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	switch r.URL.Path {
+	p := strings.ReplaceAll(r.URL.Path, "/users/", "/user/")
+
+	switch p {
 	case "/user/auth":
 		a.handleUserAuth(w, r)
 	case "/user/create":
@@ -110,7 +114,6 @@ func (a *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
-
 }
 
 func (a *Handler) handleUserGet(w http.ResponseWriter, r *http.Request) {
@@ -145,7 +148,7 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		panic(newErrorF(http.StatusBadRequest, "blank password"))
 	}
 
-	userid := tx.CreatePasswordUser(email, HashPassword(password))
+	userid := tx.CreatePasswordUser(email, a.settings.HashPasswordFn(password))
 
 	SignInUser(tx, w, userid, true)
 }
@@ -227,7 +230,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 			panic(newErrorF(http.StatusUnauthorized, "no user with that email exists"))
 		}
 
-		err = bcrypt.CompareHashAndPassword([]byte(realPassword), []byte(password))
+		err = a.settings.CompareHashedPasswordFn(realPassword, password)
 
 		if err != nil {
 			panic(newErrorF(http.StatusUnauthorized, "wrong password"))
@@ -254,7 +257,7 @@ func (a *Handler) handleUserUpdate(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if password != "" {
-		tx.UpdatePassword(userid, HashPassword(password))
+		tx.UpdatePassword(userid, a.settings.HashPasswordFn(password))
 	}
 
 	tx.Commit()
@@ -348,7 +351,7 @@ func (a *Handler) handleUserResetPassword(w http.ResponseWriter, r *http.Request
 		panic(newErrorF(400, "blank password"))
 	}
 
-	tx.UpdatePassword(userid, HashPassword(password))
+	tx.UpdatePassword(userid, a.settings.HashPasswordFn(password))
 	SignInUser(tx, w, userid, false)
 }
 
@@ -359,6 +362,14 @@ func New(db DB, settings Settings) http.Handler {
 		settings.SendEmailFn = func(addr string, url string) {
 			sendEmail(settings, addr, url)
 		}
+	}
+
+	if settings.HashPasswordFn == nil {
+		settings.HashPasswordFn = HashPassword
+	}
+
+	if settings.CompareHashedPasswordFn == nil {
+		settings.CompareHashedPasswordFn = CompareHashedPassword
 	}
 
 	return recoverErrors(&Handler{settings, db})

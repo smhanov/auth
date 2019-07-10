@@ -112,3 +112,10 @@ func HashPassword(password string) string {
 
 	return string(hash)
 }
+
+// CompareHashedPassword compares the hashed password with the one the user entered (unhashed).
+// It returns no error if the passwords match. The default implementation uses
+// bcrypt.CompareHashAndPassword
+func CompareHashedPassword(hashedPassword, candidatePassword string) error {
+	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(candidatePassword))
+}
