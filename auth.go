@@ -120,7 +120,7 @@ func (a *Handler) handleUserGet(w http.ResponseWriter, r *http.Request) {
 	tx := a.db.Begin()
 	defer tx.Rollback()
 
-	SendJSON(w, tx.GetInfo(a.getUserID(tx, r), false))
+	SendJSON(w, tx.GetInfo(GetUserID(tx, r), false))
 }
 
 func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
@@ -128,7 +128,7 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		if thing := recover(); thing != nil {
 			message := fmt.Sprintf("%v", thing)
 			if strings.Index(message, "UNIQUE") >= 0 {
-				thing = newErrorF(http.StatusBadRequest, "email already exists")
+				HTTPPanic(http.StatusBadRequest, "email already exists")
 			}
 			panic(thing)
 		}
@@ -141,19 +141,22 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 	password := r.FormValue("password")
 
 	if email == "" || strings.Index(email, "@") == -1 {
-		panic(newErrorF(http.StatusBadRequest, "not an email address"))
+		HTTPPanic(http.StatusBadRequest, "not an email address")
 	}
 
 	if password == "" {
-		panic(newErrorF(http.StatusBadRequest, "blank password"))
+		HTTPPanic(http.StatusBadRequest, "blank password")
 	}
 
 	userid := tx.CreatePasswordUser(email, a.settings.HashPasswordFn(password))
 
 	SignInUser(tx, w, userid, true)
+	tx.Commit()
 }
 
-func (a *Handler) getUserID(tx Tx, r *http.Request) int64 {
+// GetUserID returns the userid. It panics with an HttpError if the
+// user is not signed in.
+func GetUserID(tx Tx, r *http.Request) int64 {
 	cookie, err := r.Cookie("session")
 
 	var userid int64
@@ -162,7 +165,7 @@ func (a *Handler) getUserID(tx Tx, r *http.Request) int64 {
 	}
 
 	if userid == 0 {
-		panic(newErrorF(http.StatusUnauthorized, "Not signed in."))
+		HTTPPanic(http.StatusUnauthorized, "Not signed in.")
 	}
 
 	return userid
@@ -189,7 +192,6 @@ func (a *Handler) handleUserSignout(w http.ResponseWriter, req *http.Request) {
 
 // SignInUser performs the final steps of signing in an authenticated user,
 // including creating a session and outputing the user info structure as JSON.
-// It also commits the transaction.
 func SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool) {
 	cookie := MakeCookie()
 	tx.SignIn(userid, cookie)
@@ -200,9 +202,6 @@ func SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool) {
 	cookieVal := http.Cookie{Name: "session", Value: cookie,
 		Path: "/", Expires: expiration}
 	http.SetCookie(w, &cookieVal)
-
-	tx.Commit()
-
 	SendJSON(w, info)
 }
 
@@ -213,7 +212,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 	token := req.FormValue("token")
 
 	tx := a.db.Begin()
-	defer tx.Commit()
+	defer tx.Commit() // so signout works below.
 	signOut(tx, req)
 
 	var userid int64
@@ -227,13 +226,13 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 		var realPassword string
 		userid, realPassword = tx.GetPassword(username)
 		if userid == 0 {
-			panic(newErrorF(http.StatusUnauthorized, "no user with that email exists"))
+			HTTPPanic(http.StatusUnauthorized, "no user with that email exists")
 		}
 
 		err = a.settings.CompareHashedPasswordFn(realPassword, password)
 
 		if err != nil {
-			panic(newErrorF(http.StatusUnauthorized, "wrong password"))
+			HTTPPanic(http.StatusUnauthorized, "wrong password")
 		}
 	}
 
@@ -244,12 +243,12 @@ func (a *Handler) handleUserUpdate(w http.ResponseWriter, req *http.Request) {
 	tx := a.db.Begin()
 	defer tx.Rollback()
 
-	userid := a.getUserID(tx, req)
+	userid := GetUserID(tx, req)
 	email := strings.ToLower(req.FormValue("email"))
 	password := req.FormValue("password")
 
 	if email == "" && password == "" || email != "" && strings.Index(email, "@") < 0 {
-		panic(newErrorF(400, "not an email address"))
+		HTTPPanic(400, "not an email address")
 	}
 
 	if email != "" {
@@ -270,10 +269,10 @@ func (a *Handler) handleUserOauthRemove(w http.ResponseWriter, r *http.Request) 
 
 	method := r.FormValue("method")
 	if method == "" {
-		panic(newErrorF(400, "Missing method parameter"))
+		HTTPPanic(400, "Missing method parameter")
 	}
 
-	tx.RemoveOauthMethod(a.getUserID(tx, r), method)
+	tx.RemoveOauthMethod(GetUserID(tx, r), method)
 
 	tx.Commit()
 }
@@ -285,9 +284,9 @@ func (a *Handler) handleUserOauthAdd(w http.ResponseWriter, r *http.Request) {
 	method := r.FormValue("method")
 	token := r.FormValue("token")
 	updateEmail := r.FormValue("update_email")
-	userid := a.getUserID(tx, r)
+	userid := GetUserID(tx, r)
 	if method == "" {
-		panic(newErrorF(400, "Missing method parameter"))
+		HTTPPanic(400, "Missing method parameter")
 	}
 
 	foreignID, email := doOauth(method, token)
@@ -312,17 +311,17 @@ func (a *Handler) handleUserForgotPassword(w http.ResponseWriter, r *http.Reques
 	url := r.FormValue("url")
 
 	if strings.Index(email, "@") < 0 {
-		panic(newErrorF(400, "please enter an email address"))
+		HTTPPanic(400, "please enter an email address")
 	}
 
 	userid := tx.GetUserByEmail(email)
 
 	if userid == 0 {
-		panic(newErrorF(400, "email has no existing account"))
+		HTTPPanic(400, "email has no existing account")
 	}
 
 	if strings.Index(url, "${TOKEN}") < 0 {
-		panic(newErrorF(400, "url must contain ${TOKEN}"))
+		HTTPPanic(400, "url must contain ${TOKEN}")
 	}
 
 	token := MakeCookie()
@@ -342,17 +341,18 @@ func (a *Handler) handleUserResetPassword(w http.ResponseWriter, r *http.Request
 	userid := tx.GetUserByPasswordResetToken(r.FormValue("token"))
 
 	if userid == 0 {
-		panic(newErrorF(401, "expired token"))
+		HTTPPanic(401, "expired token")
 	}
 
 	password := r.FormValue("password")
 
 	if password == "" {
-		panic(newErrorF(400, "blank password"))
+		HTTPPanic(400, "blank password")
 	}
 
 	tx.UpdatePassword(userid, a.settings.HashPasswordFn(password))
 	SignInUser(tx, w, userid, false)
+	tx.Commit()
 }
 
 // New creates a new Handler
@@ -372,5 +372,5 @@ func New(db DB, settings Settings) http.Handler {
 		settings.CompareHashedPasswordFn = CompareHashedPassword
 	}
 
-	return recoverErrors(&Handler{settings, db})
+	return RecoverErrors(&Handler{settings, db})
 }

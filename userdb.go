@@ -2,6 +2,7 @@ package auth
 
 import (
 	"database/sql"
+	"log"
 	"time"
 
 	"github.com/jmoiron/sqlx"
@@ -43,7 +44,10 @@ func (db *UserDB) Begin() Tx {
 
 // Commit commits a DB transaction
 func (tx UserTx) Commit() {
-	tx.Tx.Commit()
+	err := tx.Tx.Commit()
+	if err != nil {
+		log.Panic(err)
+	}
 }
 
 // Rollback aborts a DB transaction

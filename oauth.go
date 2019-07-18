@@ -47,7 +47,7 @@ func doOauth(method, token string) (string, string) {
 			log.Printf("Response: %v", b)
 
 			if err != nil {
-				panic(newErrorF(401, "Unauthorized"))
+				HTTPPanic(401, "Unauthorized")
 			}
 		}
 
@@ -63,7 +63,8 @@ func doOauth(method, token string) (string, string) {
 		return data.ID, data.Email
 	}
 
-	panic(newErrorF(400, "invalid oauth method"))
+	HTTPPanic(400, "invalid oauth method")
+	return "", ""
 }
 
 func signInOauth(tx Tx, method string, foreignID string, email string) (int64, bool) {

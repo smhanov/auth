@@ -12,17 +12,31 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// HTTPError is an error that should be communicated to the user through
+// an http status code.
+type HTTPError interface {
+	Error() string
+	StatusCode() int
+}
+
 type httpError struct {
 	status  int
 	message string
 }
 
-func (h httpError) String() string {
+func (h httpError) Error() string {
 	return h.message
 }
 
-func newErrorF(status int, fmtStr string, args ...interface{}) httpError {
-	return httpError{status, fmt.Sprintf(fmtStr, args...)}
+func (h httpError) StatusCode() int {
+	return h.status
+}
+
+// HTTPPanic will cause a panic with an HTTPError. This is expected to be
+// recovered at a higher level, for example using the RecoverErrors
+// middleware so the error is returned to the client.
+func HTTPPanic(status int, fmtStr string, args ...interface{}) HTTPError {
+	panic(httpError{status, fmt.Sprintf(fmtStr, args...)})
 }
 
 // SendJSON will write a json response
@@ -60,22 +74,30 @@ func CORS(fn http.Handler) http.HandlerFunc {
 	}
 }
 
-func recoverErrors(fn http.Handler) http.HandlerFunc {
+// RecoverErrors will wrap an HTTP handler. When a panic occurs, it will
+// print the stack to the log. Secondly, it will return the internal server error
+// with the status header equal to the error string.
+func RecoverErrors(fn http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if thing := recover(); thing != nil {
 				code := http.StatusInternalServerError
 				status := "Internal server error"
+				dopanic := true
 				switch v := thing.(type) {
-				case httpError:
-					code = v.status
-					status = v.message
+				case HTTPError:
+					code = v.StatusCode()
+					status = v.Error()
+					dopanic = false
 				case error:
 					status = v.Error()
 					log.Println(debug.Stack())
 				}
 				w.Header().Set("Status", status)
 				w.WriteHeader(code)
+				if dopanic {
+					panic(thing)
+				}
 			}
 		}()
 
