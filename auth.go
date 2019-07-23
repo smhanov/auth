@@ -220,7 +220,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 	var created bool
 
 	if method != "" {
-		foreignID, foreignEmail := doOauth(method, token)
+		foreignID, foreignEmail := VerifyOauth(method, token)
 		userid, created = signInOauth(tx, "facebook", foreignID, foreignEmail)
 	} else {
 		var realPassword string
@@ -289,7 +289,7 @@ func (a *Handler) handleUserOauthAdd(w http.ResponseWriter, r *http.Request) {
 		HTTPPanic(400, "Missing method parameter")
 	}
 
-	foreignID, email := doOauth(method, token)
+	foreignID, email := VerifyOauth(method, token)
 	tx.AddOauthUser(method, foreignID, userid)
 
 	if updateEmail == "true" {

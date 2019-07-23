@@ -18,6 +18,11 @@ type facebookResponse struct {
 	ID    string `json:"id"`
 }
 
+type googleResponse struct {
+	Sub   string `json:"sub"`
+	Email string `json:"email"`
+}
+
 func getURL(url string) string {
 	if TestURL != "" {
 		return TestURL
@@ -25,42 +30,62 @@ func getURL(url string) string {
 	return url
 }
 
-func doOauth(method, token string) (string, string) {
+func httpRequest(url string, params map[string]string, jsonResult interface{}) {
+	client := &http.Client{}
 
-	if method == "facebook" {
-		// connect to me api to get email and foreign id
-		url := getURL("https://graph.facebook.com/v3.2/me")
+	r, err := http.NewRequest("GET", url, nil)
+	q := r.URL.Query()
+	for key, value := range params {
+		q.Add(key, value)
+	}
+	r.URL.RawQuery = q.Encode()
 
-		client := &http.Client{}
+	resp, err := client.Do(r)
 
-		r, err := http.NewRequest("GET", url, nil)
-		q := r.URL.Query()
-		q.Add("access_token", token)
-		q.Add("fields", "name,email")
-		r.URL.RawQuery = q.Encode()
+	if resp.StatusCode != 200 {
+		b, _ := ioutil.ReadAll(resp.Body)
+		log.Printf("Response: %v", b)
 
-		resp, err := client.Do(r)
-
-		if resp.StatusCode != 200 {
-
-			b, _ := ioutil.ReadAll(resp.Body)
-			log.Printf("Response: %v", b)
-
-			if err != nil {
-				HTTPPanic(401, "Unauthorized")
-			}
-		}
-
-		decoder := json.NewDecoder(resp.Body)
-
-		var data facebookResponse
-
-		err = decoder.Decode(&data)
 		if err != nil {
-			panic(err)
+			HTTPPanic(401, "Unauthorized")
 		}
+	}
+
+	decoder := json.NewDecoder(resp.Body)
+	err = decoder.Decode(jsonResult)
+	if err != nil {
+		panic(err)
+	}
+}
+
+// VerifyOauth contacts the oauth provider, specified with
+// method, and retrieves the foriegn user id and foreign
+// email of the user from the token.
+// Returns the foriegn id and email, which can then be used
+// to sign in the user.
+// Valid methods are: "facebook", "google"
+func VerifyOauth(method, token string) (string, string) {
+	switch method {
+	case "facebook":
+		var data facebookResponse
+		url := getURL("https://graph.facebook.com/v3.2/me")
+		// connect to me api to get email and foreign id
+		httpRequest(url, map[string]string{
+			"access_token": token,
+			"fields":       "name,email",
+		}, &data)
 
 		return data.ID, data.Email
+	case "google":
+		var data googleResponse
+		url := getURL("https://www.googleapis.com/oauth2/v3/tokeninfo")
+
+		// connect to me api to get email and foreign id
+		httpRequest(url, map[string]string{
+			"id_token": token,
+		}, &data)
+
+		return data.Sub, data.Email
 	}
 
 	HTTPPanic(400, "invalid oauth method")
