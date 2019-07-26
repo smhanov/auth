@@ -83,21 +83,16 @@ func RecoverErrors(fn http.Handler) http.HandlerFunc {
 			if thing := recover(); thing != nil {
 				code := http.StatusInternalServerError
 				status := "Internal server error"
-				dopanic := true
 				switch v := thing.(type) {
 				case HTTPError:
 					code = v.StatusCode()
 					status = v.Error()
-					dopanic = false
-				case error:
-					status = v.Error()
-					log.Println(debug.Stack())
+				default:
+					status = fmt.Sprintf("%v", thing)
+					log.Println(string(debug.Stack()))
 				}
 				w.Header().Set("Status", status)
 				w.WriteHeader(code)
-				if dopanic {
-					panic(thing)
-				}
 			}
 		}()
 

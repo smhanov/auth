@@ -157,17 +157,24 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 // GetUserID returns the userid. It panics with an HttpError if the
 // user is not signed in.
 func GetUserID(tx Tx, r *http.Request) int64 {
+	userid := CheckUserID(tx, r)
+
+	if userid == 0 {
+		HTTPPanic(http.StatusUnauthorized, "Not signed in.")
+	}
+
+	return userid
+}
+
+// CheckUserID returns the userid if the user is signed in,
+// or 0
+func CheckUserID(tx Tx, r *http.Request) int64 {
 	cookie, err := r.Cookie("session")
 
 	var userid int64
 	if err == nil {
 		userid = tx.GetID(cookie.Value)
 	}
-
-	if userid == 0 {
-		HTTPPanic(http.StatusUnauthorized, "Not signed in.")
-	}
-
 	return userid
 }
 
@@ -328,26 +335,24 @@ func (a *Handler) handleUserForgotPassword(w http.ResponseWriter, r *http.Reques
 	tx.CreatePasswordResetToken(userid, token, time.Now().Unix()+5*24*60*60)
 
 	url = strings.Replace(url, "${TOKEN}", token, -1)
+	tx.Commit()
 
 	a.settings.SendEmailFn(email, url)
-
-	tx.Commit()
 }
 
 func (a *Handler) handleUserResetPassword(w http.ResponseWriter, r *http.Request) {
 	tx := a.db.Begin()
 	defer tx.Rollback()
 
-	userid := tx.GetUserByPasswordResetToken(r.FormValue("token"))
-
-	if userid == 0 {
-		HTTPPanic(401, "expired token")
-	}
-
 	password := r.FormValue("password")
 
 	if password == "" {
 		HTTPPanic(400, "blank password")
+	}
+
+	userid := tx.GetUserByPasswordResetToken(r.FormValue("token"))
+	if userid == 0 {
+		HTTPPanic(401, "expired token")
 	}
 
 	tx.UpdatePassword(userid, a.settings.HashPasswordFn(password))
