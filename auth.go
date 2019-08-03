@@ -120,7 +120,10 @@ func (a *Handler) handleUserGet(w http.ResponseWriter, r *http.Request) {
 	tx := a.db.Begin()
 	defer tx.Rollback()
 
-	SendJSON(w, tx.GetInfo(GetUserID(tx, r), false))
+	info := tx.GetInfo(GetUserID(tx, r), false)
+	tx.Commit()
+
+	SendJSON(w, info)
 }
 
 func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
@@ -150,8 +153,9 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 
 	userid := tx.CreatePasswordUser(email, a.settings.HashPasswordFn(password))
 
-	SignInUser(tx, w, userid, true)
+	info := SignInUser(tx, w, userid, true)
 	tx.Commit()
+	SendJSON(w, info)
 }
 
 // GetUserID returns the userid. It panics with an HttpError if the
@@ -198,8 +202,15 @@ func (a *Handler) handleUserSignout(w http.ResponseWriter, req *http.Request) {
 }
 
 // SignInUser performs the final steps of signing in an authenticated user,
-// including creating a session and outputing the user info structure as JSON.
-func SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool) {
+// including creating a session. It returns the info structure that should be
+// sent. You should first commit the transaction and then send this structure,
+// perhaps using the SendJSON helper.
+//
+// Example:
+// info := auth.SignInUser(tx, w, userid, false)
+// tx.Commit()
+// auth.SendJSON(w, info)
+func SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool) UserInfo {
 	cookie := MakeCookie()
 	tx.SignIn(userid, cookie)
 
@@ -209,7 +220,7 @@ func SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool) {
 	cookieVal := http.Cookie{Name: "session", Value: cookie,
 		Path: "/", Expires: expiration}
 	http.SetCookie(w, &cookieVal)
-	SendJSON(w, info)
+	return info
 }
 
 func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
@@ -243,7 +254,9 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	SignInUser(tx, w, userid, created)
+	info := SignInUser(tx, w, userid, created)
+	tx.Commit()
+	SendJSON(w, info)
 }
 
 func (a *Handler) handleUserUpdate(w http.ResponseWriter, req *http.Request) {
@@ -282,6 +295,7 @@ func (a *Handler) handleUserOauthRemove(w http.ResponseWriter, r *http.Request) 
 	tx.RemoveOauthMethod(GetUserID(tx, r), method)
 
 	tx.Commit()
+	w.WriteHeader(http.StatusOK)
 }
 
 func (a *Handler) handleUserOauthAdd(w http.ResponseWriter, r *http.Request) {
@@ -356,8 +370,9 @@ func (a *Handler) handleUserResetPassword(w http.ResponseWriter, r *http.Request
 	}
 
 	tx.UpdatePassword(userid, a.settings.HashPasswordFn(password))
-	SignInUser(tx, w, userid, false)
+	info := SignInUser(tx, w, userid, false)
 	tx.Commit()
+	SendJSON(w, info)
 }
 
 // New creates a new Handler

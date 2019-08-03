@@ -39,8 +39,8 @@ func HTTPPanic(status int, fmtStr string, args ...interface{}) HTTPError {
 	panic(httpError{status, fmt.Sprintf(fmtStr, args...)})
 }
 
-// SendJSON will write a json response
-// You don't need to use this but it's handy to have!
+// SendJSON will write a json response and set the appropriate content-type
+// header. You don't need to use this but it's handy to have!
 func SendJSON(w http.ResponseWriter, thing interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(thing)
