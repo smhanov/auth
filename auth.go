@@ -153,7 +153,7 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 
 	userid := tx.CreatePasswordUser(email, a.settings.HashPasswordFn(password))
 
-	info := SignInUser(tx, w, userid, true)
+	info := SignInUser(tx, w, userid, true, IsRequestSecure(r))
 	tx.Commit()
 	SendJSON(w, info)
 }
@@ -201,24 +201,41 @@ func (a *Handler) handleUserSignout(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+// IsRequestSecure returns true if the request used the HTTPS protocol.
+// It also checks for appropriate Forwarding headers.
+func IsRequestSecure(r *http.Request) bool {
+	return strings.ToLower(r.URL.Scheme) == "https" ||
+		strings.ToLower(r.Header.Get("X-Forwarded-Proto")) == "https" ||
+		strings.Index(r.Header.Get("Forwarded"), "proto=https") >= 0
+}
+
 // SignInUser performs the final steps of signing in an authenticated user,
 // including creating a session. It returns the info structure that should be
 // sent. You should first commit the transaction and then send this structure,
 // perhaps using the SendJSON helper.
 //
+// Secure should be set to true if the http request was sent over HTTPs, to restrict 
+// usage of the cookie to https only.
+//
 // Example:
-// info := auth.SignInUser(tx, w, userid, false)
+// info := auth.SignInUser(tx, w, userid, false, auth.IsRequestSecure(r))
 // tx.Commit()
 // auth.SendJSON(w, info)
-func SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool) UserInfo {
+func SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool, secure bool) UserInfo {
 	cookie := MakeCookie()
 	tx.SignIn(userid, cookie)
 
 	info := tx.GetInfo(userid, newAccount)
 
 	expiration := time.Now().Add(30 * 24 * time.Hour)
-	cookieVal := http.Cookie{Name: "session", Value: cookie,
-		Path: "/", Expires: expiration}
+	cookieVal := http.Cookie{
+		Name: "session", 
+		Value: cookie,
+		Path: "/", 
+		Expires: expiration, 
+		Secure: secure, 
+		HttpOnly: true,
+	}
 	http.SetCookie(w, &cookieVal)
 	return info
 }
@@ -254,7 +271,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	info := SignInUser(tx, w, userid, created)
+	info := SignInUser(tx, w, userid, created, IsRequestSecure(req))
 	tx.Commit()
 	SendJSON(w, info)
 }
@@ -370,7 +387,7 @@ func (a *Handler) handleUserResetPassword(w http.ResponseWriter, r *http.Request
 	}
 
 	tx.UpdatePassword(userid, a.settings.HashPasswordFn(password))
-	info := SignInUser(tx, w, userid, false)
+	info := SignInUser(tx, w, userid, false, IsRequestSecure(r))
 	tx.Commit()
 	SendJSON(w, info)
 }
