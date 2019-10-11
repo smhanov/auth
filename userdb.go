@@ -45,7 +45,7 @@ func (db *UserDB) Begin() Tx {
 // Commit commits a DB transaction
 func (tx UserTx) Commit() {
 	err := tx.Tx.Commit()
-	if err != nil {
+	if err != nil && err != sql.ErrTxDone {
 		log.Panic(err)
 	}
 }
