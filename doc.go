@@ -7,7 +7,7 @@ Provides a complete user authentication system, including:
 
 1. Email / password
 
-2. Facebook authentication
+2. Facebook and Google authentication
 
 3. Change of password / email
 
@@ -15,9 +15,12 @@ Provides a complete user authentication system, including:
 
 Tested with SQLITE and Postgresql. To use it, create a database using the sqlx
 module, and then create an auth.UserDB from that, and then call auth.New() to
-create an HTTP handler for "/user/" (note the trailing slash). It provides
+create an HTTP handler for "/user/" (note the trailing slash). See the example below. It provides
 the following endpoints which work with GET and POST. It also allows CORS and
 OPTIONS requests.
+
+If you want, you can write all your own database code by implementing the UserDB
+interface.
 
 All HTTP responses might have the additional "Status" header which is a
 user-readable explanation of what went wrong.
@@ -34,6 +37,10 @@ the token is used to get the user's email from facebook's servers.
 Create
 
 /user/create will create a password user, using the "email" and "password".
+The user will be signed in and the response will be identical to /user/authenticate
+or /user/get.
+
+The user is automatically signed in, unless the optional "signin" parameter is "0".
 
 Get
 
@@ -59,10 +66,12 @@ and adds the authentication to the user's account so they can
 later sign in. If "update_email" is true, it also changes the
 user's email address to the one provided by the oauth provider.
 
+The method parameter can be "facebook" or "google".
+
 Oauth remove
 
 /user/oauth/remove removes the oauth method from the user's account.
-The only parameter is "method" which can be "facebook"
+The only parameter is "method" which can be "facebook" or "google"
 
 Forgot password
 

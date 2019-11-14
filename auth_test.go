@@ -611,6 +611,27 @@ func TestStuff(t *testing.T) {
 				"userid": 1.0,
 			},
 		},
+		{
+			name: "Create a new user without signing in",
+			path: "/user/create",
+			params: map[string]string{
+				"email":    "example4@example.com",
+				"password": "password",
+				"signin":   "0",
+			},
+			code: 200,
+			json: map[string]interface{}{
+				"email": "example4@example.com",
+			},
+		},
+		{
+			name: "after creating user with signin=0, we are still signed in as original user",
+			path: "/user/get",
+			code: 200,
+			json: map[string]interface{}{
+				"email": "example@example.com",
+			},
+		},
 	}...,
 	)
 }
@@ -651,6 +672,7 @@ func (tc *testClient) do(t *testing.T, trs ...testRequest) {
 
 		if resp.StatusCode != tr.code {
 			t.Errorf("*** Expected status code %v but got %v", tr.code, resp.StatusCode)
+			t.Errorf("    Status: %s", resp.Header.Get("status"))
 			t.FailNow()
 		}
 

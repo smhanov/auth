@@ -152,8 +152,12 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userid := tx.CreatePasswordUser(email, a.settings.HashPasswordFn(password))
-
-	info := SignInUser(tx, w, userid, true, IsRequestSecure(r))
+	var info UserInfo
+	if r.FormValue("signin") != "0" {
+		info = SignInUser(tx, w, userid, true, IsRequestSecure(r))
+	} else {
+		info = tx.GetInfo(userid, true)
+	}
 	tx.Commit()
 	SendJSON(w, info)
 }
@@ -214,7 +218,7 @@ func IsRequestSecure(r *http.Request) bool {
 // sent. You should first commit the transaction and then send this structure,
 // perhaps using the SendJSON helper.
 //
-// Secure should be set to true if the http request was sent over HTTPs, to restrict 
+// Secure should be set to true if the http request was sent over HTTPs, to restrict
 // usage of the cookie to https only.
 //
 // Example:
@@ -229,11 +233,11 @@ func SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool, sec
 
 	expiration := time.Now().Add(30 * 24 * time.Hour)
 	cookieVal := http.Cookie{
-		Name: "session", 
-		Value: cookie,
-		Path: "/", 
-		Expires: expiration, 
-		Secure: secure, 
+		Name:     "session",
+		Value:    cookie,
+		Path:     "/",
+		Expires:  expiration,
+		Secure:   secure,
 		HttpOnly: true,
 	}
 	http.SetCookie(w, &cookieVal)
