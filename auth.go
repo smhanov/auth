@@ -23,9 +23,11 @@ type Settings struct {
 	// Alternatively, you can use this to send email
 	SendEmailFn func(email string, url string)
 
-	// Optionally override password hash from bcrypt default.
-	CompareHashedPasswordFn func(hashedRealPassword, candidatePassword string) error
+	// Optionally override password hash from bcrypt default. You may override HashPassword,
+	// or both. If you override HashPassword but not CompareHashedPassword, then
+	// a CompareHashPasswordFn will be created based on HashPasswordFn.
 	HashPasswordFn          func(password string) string
+	CompareHashedPasswordFn func(hashedRealPassword, candidatePassword string) error
 }
 
 // DefaultSettings provide some reasonable defaults
@@ -407,10 +409,22 @@ func New(db DB, settings Settings) http.Handler {
 
 	if settings.HashPasswordFn == nil {
 		settings.HashPasswordFn = HashPassword
-	}
 
-	if settings.CompareHashedPasswordFn == nil {
-		settings.CompareHashedPasswordFn = CompareHashedPassword
+		if settings.CompareHashedPasswordFn == nil {
+			settings.CompareHashedPasswordFn = CompareHashedPassword
+		}
+
+		// HashPasswordFn is specified. Create a compare func if unspecified.
+	} else if settings.CompareHashedPasswordFn == nil {
+		settings.CompareHashedPasswordFn = func(hashedRealPassword string, candidatePassword string) error {
+			hashedCandidate := settings.HashPasswordFn(candidatePassword)
+
+			if hashedCandidate != hashedRealPassword {
+				return errors.New("passwords do not match")
+			}
+
+			return nil
+		}
 	}
 
 	return RecoverErrors(&Handler{settings, db})
