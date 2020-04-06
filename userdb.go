@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"time"
@@ -38,7 +39,7 @@ func (db *UserDB) createTables() {
 }
 
 // Begin begins a transaction
-func (db *UserDB) Begin() Tx {
+func (db *UserDB) Begin(ctx context.Context) Tx {
 	return UserTx{db.db.MustBegin()}
 }
 

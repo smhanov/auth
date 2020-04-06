@@ -1,6 +1,7 @@
 package auth_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,8 +26,8 @@ type MyTx struct {
 	auth.Tx
 }
 
-func (db MyDB) Begin() auth.Tx {
-	return MyTx{db.db.Begin()}
+func (db MyDB) Begin(ctx context.Context) auth.Tx {
+	return MyTx{db.db.Begin(ctx)}
 }
 
 func (tx MyTx) GetUserInfo() auth.UserInfo {

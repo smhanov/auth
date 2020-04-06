@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -57,7 +58,7 @@ type UserInfo interface{}
 //
 // Any errors should be expressed through panic.
 type DB interface {
-	Begin() Tx
+	Begin(ctx context.Context) Tx
 }
 
 // Tx is a database transaction that has methods for
@@ -119,7 +120,7 @@ func (a *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Handler) handleUserGet(w http.ResponseWriter, r *http.Request) {
-	tx := a.db.Begin()
+	tx := a.db.Begin(r.Context())
 	defer tx.Rollback()
 
 	info := tx.GetInfo(GetUserID(tx, r), false)
@@ -139,7 +140,7 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	tx := a.db.Begin()
+	tx := a.db.Begin(r.Context())
 	defer tx.Rollback()
 
 	email := strings.ToLower(r.FormValue("email"))
@@ -199,7 +200,7 @@ func signOut(tx Tx, req *http.Request) {
 }
 
 func (a *Handler) handleUserSignout(w http.ResponseWriter, req *http.Request) {
-	tx := a.db.Begin()
+	tx := a.db.Begin(req.Context())
 	defer tx.Rollback()
 
 	signOut(tx, req)
@@ -252,7 +253,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 	method := req.FormValue("method")
 	token := req.FormValue("token")
 
-	tx := a.db.Begin()
+	tx := a.db.Begin(req.Context())
 	defer tx.Commit() // so signout works below.
 	signOut(tx, req)
 
@@ -283,7 +284,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 }
 
 func (a *Handler) handleUserUpdate(w http.ResponseWriter, req *http.Request) {
-	tx := a.db.Begin()
+	tx := a.db.Begin(req.Context())
 	defer tx.Rollback()
 
 	userid := GetUserID(tx, req)
@@ -307,7 +308,7 @@ func (a *Handler) handleUserUpdate(w http.ResponseWriter, req *http.Request) {
 }
 
 func (a *Handler) handleUserOauthRemove(w http.ResponseWriter, r *http.Request) {
-	tx := a.db.Begin()
+	tx := a.db.Begin(r.Context())
 	defer tx.Rollback()
 
 	method := r.FormValue("method")
@@ -322,7 +323,7 @@ func (a *Handler) handleUserOauthRemove(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *Handler) handleUserOauthAdd(w http.ResponseWriter, r *http.Request) {
-	tx := a.db.Begin()
+	tx := a.db.Begin(r.Context())
 	defer tx.Rollback()
 
 	method := r.FormValue("method")
@@ -348,7 +349,7 @@ func (a *Handler) handleUserOauthAdd(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Handler) handleUserForgotPassword(w http.ResponseWriter, r *http.Request) {
-	tx := a.db.Begin()
+	tx := a.db.Begin(r.Context())
 	defer tx.Rollback()
 
 	email := r.FormValue("email")
@@ -378,7 +379,7 @@ func (a *Handler) handleUserForgotPassword(w http.ResponseWriter, r *http.Reques
 }
 
 func (a *Handler) handleUserResetPassword(w http.ResponseWriter, r *http.Request) {
-	tx := a.db.Begin()
+	tx := a.db.Begin(r.Context())
 	defer tx.Rollback()
 
 	password := r.FormValue("password")
