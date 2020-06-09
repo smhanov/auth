@@ -42,12 +42,15 @@ func httpRequest(url string, params map[string]string, jsonResult interface{}) {
 
 	resp, err := client.Do(r)
 
-	if resp.StatusCode != 200 {
-		b, _ := ioutil.ReadAll(resp.Body)
-		log.Printf("Response: %v", b)
+	if err != nil {
+		panic(err)
+	}
 
+	if resp.StatusCode != 200 {
+		b, err := ioutil.ReadAll(resp.Body)
+		log.Printf("Response: %v", b)
 		if err != nil {
-			HTTPPanic(401, "Unauthorized")
+			panic(err)
 		}
 	}
 
