@@ -140,7 +140,7 @@ func TestStuff(t *testing.T) {
 			name: "create a different user should succeed",
 			path: "/user/create",
 			params: map[string]string{
-				"email":    "example2@example.com",
+				"email":    " example2@example.com  ", // note spaces!! They should be removed.
 				"password": "password",
 			},
 			code: 200,
@@ -200,6 +200,20 @@ func TestStuff(t *testing.T) {
 			path: "/user/auth",
 			params: map[string]string{
 				"email":    "example@example.com",
+				"password": "password",
+			},
+			code: 200,
+			json: map[string]interface{}{
+				"email":    "example@example.com",
+				"userid":   1.0,
+				"settings": "",
+			},
+		},
+		{
+			name: "Sign in with uppercase / spaces in email should succeed",
+			path: "/user/auth",
+			params: map[string]string{
+				"email":    "Example@example.com ",
 				"password": "password",
 			},
 			code: 200,

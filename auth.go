@@ -143,7 +143,7 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 	tx := a.db.Begin(r.Context())
 	defer tx.Rollback()
 
-	email := strings.ToLower(r.FormValue("email"))
+	email := strings.TrimSpace(strings.ToLower(r.FormValue("email")))
 	password := r.FormValue("password")
 
 	if email == "" || strings.Index(email, "@") == -1 {
@@ -248,7 +248,7 @@ func SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool, sec
 }
 
 func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
-	username := strings.ToLower(req.FormValue("email"))
+	username := strings.TrimSpace(strings.ToLower(req.FormValue("email")))
 	password := req.FormValue("password")
 	method := req.FormValue("method")
 	token := req.FormValue("token")
