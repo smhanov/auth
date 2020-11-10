@@ -304,3 +304,64 @@ func (tx UserTx) GetUserByPasswordResetToken(token string) int64 {
 
 	return userid
 }
+
+// GetValue should look up the given value. If not present return
+// the empty string.
+func (tx UserTx) GetValue(key string) string {
+	rows, err := tx.Tx.Query("SELECT value FROM AuthSettings WHERE key=$1",
+		key)
+
+	if err != nil {
+		panic(err)
+	}
+
+	var value string
+
+	defer rows.Close()
+	for rows.Next() {
+		rows.Scan(&value)
+	}
+	return value
+}
+
+// SetValue should set the given value in the database.
+func (tx UserTx) SetValue(key, value string) {
+	_, err := tx.Tx.Exec("DELETE FROM AuthSettings WHERE key=$1",
+		key)
+	if err != nil {
+		panic(err)
+	}
+
+	_, err = tx.Tx.Exec(`INSERT INTO AuthSettings (key, value) VALUES
+		($1, $2)`, key, value)
+
+	if err != nil {
+		panic(err)
+	}
+}
+
+// GetSamlIdentityProviderForUser returns the SAML provider metadata for a
+// given user. The choice of which provider to use for the email address
+// is entirely contained in this method.
+// You will have to override the DB interface to implement this
+// in your app, maybe distinguishing based on their email domain.
+// If this method returns the empty string, normal authentication
+// is done. Otherwise, the browser is redirected to the identity provider's
+// sign in page.
+func (tx UserTx) GetSamlIdentityProviderForUser(email string) string {
+	return ""
+}
+
+// GetSamlIdentityProviderByID will return the XML Metadata file
+// for the given identity provider, which has previously been added
+// with AddSamlIdentityProviderMetadata
+func (tx UserTx) GetSamlIdentityProviderByID(id string) string {
+	return tx.GetValue("provider:" + id)
+}
+
+// AddSamlIdentityProviderMetadata adds the meta data for the given
+// identity provider to the database. The id should be the one
+// returned by GetSamlID(xml)
+func (tx UserTx) AddSamlIdentityProviderMetadata(id, xml string) {
+	tx.SetValue("provider:"+id, xml)
+}

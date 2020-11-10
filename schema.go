@@ -33,6 +33,10 @@ CREATE TABLE IF NOT EXISTS PasswordResetTokens (
     FOREIGN KEY (userid) REFERENCES Users ON DELETE CASCADE
 );	
 
+CREATE TABLE IF NOT EXISTS AuthSettings (
+	key TEXT NOT NULL,
+	value TEXT NOT NULL
+);
 `
 
 const schemaPostgres = `
@@ -68,4 +72,9 @@ CREATE TABLE IF NOT EXISTS PasswordResetTokens (
 	expiry BIGINT NOT NULL,
     FOREIGN KEY (userid) REFERENCES Users ON DELETE CASCADE
 );	
+
+CREATE TABLE IF NOT EXISTS AuthSettings (
+	key TEXT NOT NULL,
+	value TEXT NOT NULL
+);
 `

@@ -13,6 +13,8 @@ Provides a complete user authentication system, including:
 
 4. Forgotten passwords
 
+5. SAML SSO
+
 Tested with SQLITE and Postgresql. To use it, create a database using the sqlx
 module, and then create an auth.UserDB from that, and then call auth.New() to
 create an HTTP handler for "/user/" (note the trailing slash). See the example below. It provides
@@ -27,12 +29,17 @@ user-readable explanation of what went wrong.
 
 Auth
 
-/user/auth has two cases. In case one, pass "email" and "password" and you will
+/user/auth has three cases. In case one, pass "email" and "password" and you will
 receive either an HTTP error, or the UserInfo structure.
 
 In the second case, use "method" and "token" to perform oauth authentication.
 This will either sign in or create a new user. If the method is "facebook" then
 the token is used to get the user's email from facebook's servers.
+
+If, when you pass email and password, you get HTTP error 407, that means
+SSO authentication is required. You should reload the whole web page to the
+url /user/auth?sso=1&email= giving the email address. This will start the SSO
+authentication process, and when done it will return to /.
 
 Create
 
@@ -88,6 +95,15 @@ Reset password
 /user/resetpassword takes the "token" parameter and "password".
 It will update the user's password and also sign them in, returning
 UserInfo.
+
+SAML
+
+The SAML service provider metadata is accessed from /user/saml/metadata.
+The SAML ACS url is /user/saml/acs. To use SAML, you will need to
+override the GetSamlIdentityProviderForUser method and return the
+identity provider XML metadata based on the user's email address. You
+will also need to add the XML metadata for the provider using the
+AddSamlIdentityProviderMetadata method.
 
 Database tables
 

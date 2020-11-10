@@ -89,6 +89,7 @@ func RecoverErrors(fn http.Handler) http.HandlerFunc {
 					status = v.Error()
 				default:
 					status = fmt.Sprintf("%v", thing)
+					log.Printf("%v", thing)
 					log.Println(string(debug.Stack()))
 				}
 				w.Header().Set("Status", status)

@@ -2,6 +2,8 @@ package auth
 
 import (
 	"context"
+	"crypto/rsa"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
@@ -29,6 +31,9 @@ type Settings struct {
 	// a CompareHashPasswordFn will be created based on HashPasswordFn.
 	HashPasswordFn          func(password string) string
 	CompareHashedPasswordFn func(hashedRealPassword, candidatePassword string) error
+
+	// Context used during initialization
+	DefaultContext context.Context
 }
 
 // DefaultSettings provide some reasonable defaults
@@ -83,6 +88,13 @@ type Tx interface {
 	SignOut(userid int64, cookie string)
 	UpdateEmail(userid int64, email string)
 	UpdatePassword(userid int64, password string)
+
+	// Extra methods added to support SAML
+	GetValue(key string) string
+	SetValue(key, value string)
+	GetSamlIdentityProviderForUser(email string) string
+	GetSamlIdentityProviderByID(id string) string
+	AddSamlIdentityProviderMetadata(id string, xml string)
 }
 
 // Handler is an HTTP Handler that will perform user authentication
@@ -90,6 +102,9 @@ type Tx interface {
 type Handler struct {
 	settings Settings
 	db       DB
+
+	privateKey  *rsa.PrivateKey
+	certificate *x509.Certificate
 }
 
 func (a *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +129,10 @@ func (a *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.handleUserForgotPassword(w, r)
 	case "/user/resetpassword":
 		a.handleUserResetPassword(w, r)
+	case "/user/saml/metadata":
+		a.handleSamlMetadata(w, r)
+	case "/user/saml/acs":
+		a.handleSamlACS(w, r)
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}
@@ -252,6 +271,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 	password := req.FormValue("password")
 	method := req.FormValue("method")
 	token := req.FormValue("token")
+	sso := req.FormValue("sso")
 
 	tx := a.db.Begin(req.Context())
 	defer tx.Commit() // so signout works below.
@@ -260,6 +280,17 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 	var userid int64
 	var err error
 	var created bool
+
+	// check if we have to use SAML
+	metaData := tx.GetSamlIdentityProviderForUser(username)
+	if metaData != "" {
+		if sso != "" {
+			a.handleSaml(tx, w, req, username, metaData)
+		} else {
+			HTTPPanic(http.StatusProxyAuthRequired, "sso required")
+		}
+		return
+	}
 
 	if method != "" {
 		foreignID, foreignEmail := VerifyOauth(method, token)
@@ -428,5 +459,12 @@ func New(db DB, settings Settings) http.Handler {
 		}
 	}
 
-	return RecoverErrors(&Handler{settings, db})
+	if settings.DefaultContext == nil {
+		settings.DefaultContext = context.Background()
+	}
+
+	handler := &Handler{settings, db, nil, nil}
+	handler.initSaml(db)
+
+	return RecoverErrors(handler)
 }
