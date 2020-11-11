@@ -7,7 +7,6 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
-	"os"
 
 	"encoding/json"
 	"encoding/pem"
@@ -110,6 +109,11 @@ func (a *Handler) newSamlSP(req *http.Request, metadataXML string) *samlsp.Middl
 	var err error
 
 	url := *req.URL
+
+	if req.Host != "" {
+		url.Host = req.Host
+	}
+
 	forwarded := req.Header.Get("X-Forwarded-Host")
 	if forwarded != "" {
 		url.Host = forwarded
@@ -118,8 +122,6 @@ func (a *Handler) newSamlSP(req *http.Request, metadataXML string) *samlsp.Middl
 	url.Scheme = "http"
 	url.Path = "/user/"
 	url.RawQuery = ""
-
-	req.Header.Write(os.Stdout)
 
 	if IsRequestSecure(req) {
 		url.Scheme = "https"
@@ -130,11 +132,8 @@ func (a *Handler) newSamlSP(req *http.Request, metadataXML string) *samlsp.Middl
 		if err != nil {
 			panic(err) // TODO handle error
 		}
-		//log.Printf("metadata is %s", prettyPrint((ed)))
 	}
 
-	//log.Printf("Use URL %v", url)
-	//log.Printf("Use metadata=%s", metadataXML)
 	m, err := samlsp.New(samlsp.Options{
 		URL:               url,
 		Key:               a.privateKey,
@@ -154,6 +153,20 @@ const maxSamlSignInTime = 15 * 60
 
 func (a *Handler) handleSaml(tx Tx, w http.ResponseWriter, req *http.Request, email, metadataXML string) {
 	sp := a.newSamlSP(req, metadataXML)
+
+	returnTo := req.Header.Get("Referer")
+	if returnTo == "" {
+		returnTo = "/"
+	}
+	// store the referrer as a cookie in the return-to url
+	http.SetCookie(w, &http.Cookie{
+		Name:     "saml_return_to",
+		Value:    returnTo,
+		Expires:  time.Now().Add(24 * time.Hour),
+		Path:     "/",
+		Secure:   IsRequestSecure(req),
+		HttpOnly: true,
+	})
 	sp.HandleStartAuthFlow(w, req)
 }
 
@@ -191,7 +204,6 @@ func (a *Handler) handleSamlACS(w http.ResponseWriter, r *http.Request) {
 	defer tx.Commit()
 
 	issuer := getIssuer(r)
-	log.Printf("Got issuer  %s", issuer)
 	xml := tx.GetSamlIdentityProviderByID(issuer)
 	if xml == "" {
 		HTTPPanic(400, "SAML Request is missing Issuer information")
@@ -217,7 +229,7 @@ func (a *Handler) handleSamlACS(w http.ResponseWriter, r *http.Request) {
 		log.Panic(err)
 	}
 
-	log.Printf("Assertion: %v", prettyPrint(assertion))
+	//log.Printf("Assertion: %v", prettyPrint(assertion))
 	var email string
 	for _, statement := range assertion.AttributeStatements {
 		for _, attr := range statement.Attributes {
@@ -254,8 +266,20 @@ func (a *Handler) handleSamlACS(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Sign in saml user %s", email)
 	}
 
+	returnTo := "/"
+	if cookie, err := r.Cookie("saml_return_to"); err == nil {
+		http.SetCookie(w, &http.Cookie{
+			Name:     "saml_return_to",
+			Value:    "",
+			Path:     "/",
+			Expires:  time.Unix(0, 0),
+			HttpOnly: true,
+			Secure:   IsRequestSecure(r),
+		})
+		returnTo = cookie.Value
+	}
 	SignInUser(tx, w, userid, created, IsRequestSecure(r))
-	http.Redirect(w, r, "/user/get", 307)
+	http.Redirect(w, r, returnTo, 303) // code 303 changes redirect to a GET request.
 }
 
 func isEmail(input string) bool {
