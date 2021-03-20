@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -105,7 +106,7 @@ const charset = "abcdefghijklmnopqrstuvwxyz" +
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 var seededRand = rand.New(
-	rand.NewSource(time.Now().UnixNano()))
+	rand.NewSource(now().UnixNano()))
 
 func stringWithCharset(length int, charset string) string {
 	b := make([]byte, length)
@@ -136,4 +137,32 @@ func HashPassword(password string) string {
 // bcrypt.CompareHashAndPassword
 func CompareHashedPassword(hashedPassword, candidatePassword string) error {
 	return bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(candidatePassword))
+}
+
+// AdvanceTime is used during testing to simulate time passing
+func AdvanceTime(amount time.Duration) {
+	timeOffset += amount
+}
+
+var timeOffset time.Duration
+
+func now() time.Time {
+	return time.Now().Add(timeOffset)
+}
+
+// GetRequestIP returns the Ip address of the request, taking into account
+// x-forwarded-for headers.
+func GetIPAddress(request *http.Request) string {
+	ipAddress := request.RemoteAddr
+	xForwardedFor := request.Header.Get("x-forwarded-for")
+	if xForwardedFor != "" {
+		ipAddress = xForwardedFor
+	}
+
+	colon := strings.LastIndex(ipAddress, ":")
+	if colon >= 0 {
+		ipAddress = ipAddress[:colon]
+	}
+
+	return ipAddress
 }

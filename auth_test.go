@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 	_ "github.com/mattn/go-sqlite3"
@@ -649,6 +650,65 @@ func TestStuff(t *testing.T) {
 		},
 	}...,
 	)
+
+	auth.AdvanceTime(1 * time.Hour)
+
+	// bad password attempts are rate limited
+	t.Logf("Bad password attempts should be rate limited.")
+	passed := false
+	for i := 0; i < 100; i++ {
+		resp := client.makeRequest(t, "/user/auth", map[string]string{
+			"email":    "example@example.com",
+			"password": "badpassword",
+		})
+
+		if resp.StatusCode == 429 {
+			t.Logf("    Rate limited after %d attempts", i+1)
+			passed = true
+			break
+		} else if resp.StatusCode != 401 {
+			t.Errorf("    Received invalid response %v", resp.StatusCode)
+		}
+	}
+
+	if !passed {
+		t.Errorf("FAIL: Password cracking attempts are not rate-limited.")
+	}
+
+	// wait 5 minutes and try again
+	t.Logf("After waiting period, password attempts are allowed again")
+	auth.AdvanceTime(5 * time.Minute)
+	resp := client.makeRequest(t, "/user/auth", map[string]string{
+		"email":    "example@example.com",
+		"password": "badpassword",
+	})
+	if resp.StatusCode != 401 {
+		t.Errorf("FAIL: After waiting period, got status code %v", resp.StatusCode)
+	}
+
+	// Wait an hour and start the next test.
+	auth.AdvanceTime(60 * time.Minute)
+	t.Logf("Email guessing attempts are rate limited.")
+
+	passed = false
+	for i := 0; i < 100; i++ {
+		resp := client.makeRequest(t, "/user/auth", map[string]string{
+			"email":    fmt.Sprintf("nobody%d@doesntexist.com", i),
+			"password": "badpassword",
+		})
+
+		if resp.StatusCode == 429 {
+			t.Logf("    Rate limited after %d attempts", i+1)
+			passed = true
+			break
+		} else if resp.StatusCode != 401 {
+			t.Errorf("    Received invalid response %v", resp.StatusCode)
+		}
+	}
+
+	if !passed {
+		t.Errorf("FAIL: Email guessing attempts are not rate-limited.")
+	}
 }
 
 type testClient struct {
@@ -665,25 +725,7 @@ func (tc *testClient) do(t *testing.T, trs ...testRequest) {
 		if tr.name != "" {
 			t.Logf("%s:", tr.name)
 		}
-
-		data := url.Values{}
-		if tr.params != nil {
-			for name, value := range tr.params {
-				data.Set(name, value)
-			}
-		}
-
-		t.Logf("    %s", tr.path+"?"+data.Encode())
-		req, _ := http.NewRequest("GET", tr.path+"?"+data.Encode(), nil)
-		rec := httptest.NewRecorder()
-
-		if tc.session != "" {
-			req.Header.Set("Cookie", fmt.Sprintf("session=%s;", tc.session))
-		}
-
-		tc.server.ServeHTTP(rec, req)
-
-		resp := rec.Result()
+		resp := tc.makeRequest(t, tr.path, tr.params)
 
 		if resp.StatusCode != tr.code {
 			t.Errorf("*** Expected status code %v but got %v", tr.code, resp.StatusCode)
@@ -715,9 +757,34 @@ func (tc *testClient) do(t *testing.T, trs ...testRequest) {
 			}
 		}
 
-		for _, cookie := range resp.Cookies() {
-			tc.session = cookie.Value
+	}
+
+}
+
+func (tc *testClient) makeRequest(t *testing.T, path string, params map[string]string) *http.Response {
+	data := url.Values{}
+	if params != nil {
+		for name, value := range params {
+			data.Set(name, value)
 		}
 	}
 
+	t.Logf("    %s", path+"?"+data.Encode())
+	req, _ := http.NewRequest("GET", path+"?"+data.Encode(), nil)
+	req.RemoteAddr = "10.0.0.1"
+	rec := httptest.NewRecorder()
+
+	if tc.session != "" {
+		req.Header.Set("Cookie", fmt.Sprintf("session=%s;", tc.session))
+	}
+
+	tc.server.ServeHTTP(rec, req)
+
+	resp := rec.Result()
+
+	for _, cookie := range resp.Cookies() {
+		tc.session = cookie.Value
+	}
+
+	return resp
 }

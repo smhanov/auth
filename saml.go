@@ -58,8 +58,8 @@ func (a *Handler) initSaml(db DB) {
 			Subject: pkix.Name{
 				Organization: []string{"Acme Co"},
 			},
-			NotBefore: time.Now(),
-			NotAfter:  time.Now().Add(time.Hour * 24 * 365 * 25),
+			NotBefore: now(),
+			NotAfter:  now().Add(time.Hour * 24 * 365 * 25),
 
 			KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 			ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
@@ -162,7 +162,7 @@ func (a *Handler) handleSaml(tx Tx, w http.ResponseWriter, req *http.Request, em
 	http.SetCookie(w, &http.Cookie{
 		Name:     "saml_return_to",
 		Value:    returnTo,
-		Expires:  time.Now().Add(24 * time.Hour),
+		Expires:  now().Add(24 * time.Hour),
 		Path:     "/",
 		Secure:   IsRequestSecure(req),
 		HttpOnly: true,

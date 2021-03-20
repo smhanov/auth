@@ -15,6 +15,8 @@ Provides a complete user authentication system, including:
 
 5. SAML SSO
 
+6. Rate limiting
+
 Tested with SQLITE and Postgresql. To use it, create a database using the sqlx
 module, and then create an auth.UserDB from that, and then call auth.New() to
 create an HTTP handler for "/user/" (note the trailing slash). See the example below. It provides

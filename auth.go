@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -106,6 +107,12 @@ type Handler struct {
 	privateKey  *rsa.PrivateKey
 	certificate *x509.Certificate
 }
+
+// Number of password cracking attempts allowed
+const attempts = 25
+
+// Attempts allowed in this time period
+const attemptsPeriod = time.Hour
 
 func (a *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := strings.ReplaceAll(r.URL.Path, "/users/", "/user/")
@@ -253,7 +260,7 @@ func SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool, sec
 
 	info := tx.GetInfo(userid, newAccount)
 
-	expiration := time.Now().Add(30 * 24 * time.Hour)
+	expiration := now().Add(30 * 24 * time.Hour)
 	cookieVal := http.Cookie{
 		Name:     "session",
 		Value:    cookie,
@@ -272,6 +279,18 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 	method := req.FormValue("method")
 	token := req.FormValue("token")
 	sso := req.FormValue("sso")
+
+	operation := "login:" + username
+	ipoperation := "loginip:" + GetIPAddress(req)
+	if !RateLimitCheck(operation, 1, attempts, attemptsPeriod) {
+		log.Printf("Password guessing attempt from %s is rate limited.", username)
+		HTTPPanic(429, "try again later")
+	}
+
+	if !RateLimitCheck(ipoperation, 1, attempts, attemptsPeriod) {
+		log.Printf("Email guessing attempt from %s is rate limited.", ipoperation)
+		HTTPPanic(429, "try again later")
+	}
 
 	tx := a.db.Begin(req.Context())
 	defer tx.Commit() // so signout works below.
@@ -299,12 +318,14 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 		var realPassword string
 		userid, realPassword = tx.GetPassword(username)
 		if userid == 0 {
+			RateLimitAllows(ipoperation, 1, attempts, attemptsPeriod)
 			HTTPPanic(http.StatusUnauthorized, "no user with that email exists")
 		}
 
 		err = a.settings.CompareHashedPasswordFn(realPassword, password)
 
 		if err != nil {
+			RateLimitAllows(operation, 1, attempts, attemptsPeriod)
 			HTTPPanic(http.StatusUnauthorized, "wrong password")
 		}
 	}
@@ -401,7 +422,7 @@ func (a *Handler) handleUserForgotPassword(w http.ResponseWriter, r *http.Reques
 	}
 
 	token := MakeCookie()
-	tx.CreatePasswordResetToken(userid, token, time.Now().Unix()+5*24*60*60)
+	tx.CreatePasswordResetToken(userid, token, now().Unix()+5*24*60*60)
 
 	url = strings.Replace(url, "${TOKEN}", token, -1)
 	tx.Commit()

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"log"
-	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -116,7 +115,7 @@ func (tx UserTx) GetInfo(userid int64, newAccount bool) UserInfo {
 // CreatePasswordUser creates a user with the given email and password
 // The email is already in lower case and the password is already hashed.
 func (tx UserTx) CreatePasswordUser(email string, password string) int64 {
-	now := time.Now().Unix()
+	now := now().Unix()
 	var err error
 	var id int64
 
@@ -143,7 +142,7 @@ func (tx UserTx) CreatePasswordUser(email string, password string) int64 {
 
 // SignIn creates a session with the given cookie and signs the user in.
 func (tx UserTx) SignIn(userid int64, cookie string) {
-	now := time.Now().Unix()
+	now := now().Unix()
 
 	tx.Tx.MustExec("INSERT INTO Sessions (cookie, userid, lastUsed) VALUES ($1, $2, $3)",
 		cookie, userid, now)
@@ -155,7 +154,7 @@ func (tx UserTx) SignIn(userid int64, cookie string) {
 }
 
 func (tx UserTx) performMaintenance() {
-	now := time.Now().Unix()
+	now := now().Unix()
 	before := now - 30*24*60*60
 
 	tx.Tx.MustExec("DELETE FROM Sessions WHERE lastUsed < $1", before)
@@ -293,7 +292,7 @@ func (tx UserTx) GetUserByPasswordResetToken(token string) int64 {
 	var userid int64
 
 	err := tx.Tx.Get(&userid, `SELECT userid FROM PasswordResetTokens WHERE token=$1 AND expiry >= $2`, token,
-		time.Now().Unix()-5*24*60*60)
+		now().Unix()-5*24*60*60)
 	if err != nil && err != sql.ErrNoRows {
 		panic(err)
 	}
