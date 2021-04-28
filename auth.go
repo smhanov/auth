@@ -22,7 +22,10 @@ type Settings struct {
 	// Eg. "My web site <example@example.com>"
 	EmailFrom             string
 	ForgotPasswordSubject string
-	ForgotPasswordBody    string
+
+	// Forgot password email body. This should have ${TOKEN} in it
+	// which will contain the actual text of the secret token.
+	ForgotPasswordBody string
 
 	// Alternatively, you can use this to send email
 	SendEmailFn func(email string, url string)
@@ -407,6 +410,10 @@ func (a *Handler) handleUserForgotPassword(w http.ResponseWriter, r *http.Reques
 	email := r.FormValue("email")
 	url := r.FormValue("url")
 
+	if !DoRateLimit("forgotpassword", r, email, 5, time.Hour) {
+		HTTPPanic(429, "too many requests")
+	}
+
 	if strings.Index(email, "@") < 0 {
 		HTTPPanic(400, "please enter an email address")
 	}
@@ -417,17 +424,16 @@ func (a *Handler) handleUserForgotPassword(w http.ResponseWriter, r *http.Reques
 		HTTPPanic(400, "email has no existing account")
 	}
 
-	if strings.Index(url, "${TOKEN}") < 0 {
-		HTTPPanic(400, "url must contain ${TOKEN}")
+	if url != "" {
+		HTTPPanic(400, "url is now specified in config")
 	}
 
 	token := MakeCookie()
 	tx.CreatePasswordResetToken(userid, token, now().Unix()+5*24*60*60)
 
-	url = strings.Replace(url, "${TOKEN}", token, -1)
 	tx.Commit()
 
-	a.settings.SendEmailFn(email, url)
+	a.settings.SendEmailFn(email, token)
 }
 
 func (a *Handler) handleUserResetPassword(w http.ResponseWriter, r *http.Request) {

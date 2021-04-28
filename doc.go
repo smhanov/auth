@@ -84,13 +84,13 @@ The only parameter is "method" which can be "facebook" or "google"
 
 Forgot password
 
-/user/forgotpassword just takes an "email" parameter and "url". If the user
+/user/forgotpassword just takes an "email" parameter. If the user
 exists in the system, it sends an email with the password reset
 token to the user's email address. Otherwise it returns a sensible
 error message in the Status header.
 
-The url parameter must have "${TOKEN}" in it which is replaced with the
-token generated in the email message.
+The text of the email sent is specified in the settings. It must have ${TOKEN}
+in it. This will be replaced with the actual secret token. See the example.
 
 Reset password
 

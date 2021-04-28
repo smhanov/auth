@@ -556,16 +556,15 @@ func TestStuff(t *testing.T) {
 			code: 200,
 			params: map[string]string{
 				"email": "example@example.com",
-				"url":   "awesomepeaches.com/resetpassword=${TOKEN}",
 			},
 		},
 	}
 
 	handler := auth.New(auth.NewUserDB(sqlx.MustConnect("sqlite3", ":memory:")),
 		auth.Settings{
-			SendEmailFn: func(email, url string) {
-				t.Logf("Password reset email sent; url=%s", url)
-				passwordToken = strings.Split(url, "=")[1]
+			SendEmailFn: func(email, token string) {
+				t.Logf("Password reset email sent; token=%s", token)
+				passwordToken = token
 			},
 		})
 	client := newTestClient(handler)
@@ -709,6 +708,30 @@ func TestStuff(t *testing.T) {
 	if !passed {
 		t.Errorf("FAIL: Email guessing attempts are not rate-limited.")
 	}
+
+	// Wait an hour and start the next test.
+	auth.AdvanceTime(60 * time.Minute)
+	t.Logf("Forgot password requests are rate limited.")
+
+	passed = false
+	for i := 0; i < 10; i++ {
+		resp := client.makeRequest(t, "/user/forgotpassword", map[string]string{
+			"email": "example@example.com",
+		})
+
+		if resp.StatusCode == 429 {
+			t.Logf("    Rate limited after %d attempts", i+1)
+			passed = true
+			break
+		} else if resp.StatusCode != 200 {
+			t.Errorf("    Received invalid response %v", resp.StatusCode)
+		}
+	}
+
+	if !passed {
+		t.Errorf("FAIL: Email guessing attempts are not rate-limited.")
+	}
+
 }
 
 type testClient struct {

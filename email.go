@@ -9,12 +9,12 @@ import (
 	"github.com/jordan-wright/email"
 )
 
-func sendEmail(settings Settings, addr string, url string) {
+func sendEmail(settings Settings, addr string, token string) {
 	e := &email.Email{
 		To:      []string{addr},
 		From:    settings.EmailFrom,
 		Subject: settings.ForgotPasswordSubject,
-		Text:    []byte(strings.Replace(settings.ForgotPasswordBody, "${URL}", url, -1)),
+		Text:    []byte(strings.Replace(settings.ForgotPasswordBody, "${TOKEN}", token, -1)),
 		Headers: textproto.MIMEHeader{},
 	}
 

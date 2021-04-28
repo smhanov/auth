@@ -20,7 +20,7 @@ func Example() {
 	settings.SMTPUser = gmailUser
 	settings.SMTPPassword = gmailPassword
 	settings.ForgotPasswordSubject = "Password reset from awesomepeaches.com"
-	settings.ForgotPasswordBody = "Please go to this url to reset your password:\n\n   ${URL}"
+	settings.ForgotPasswordBody = "Please go to this url to reset your password:\n\n   https://awesomepeaches.com/forgot-password/?token=${TOKEN}"
 	settings.EmailFrom = "support@awesomepeaches.com"
 
 	db, err := sqlx.Open("sqlite3", "mydatabase.db")

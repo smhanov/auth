@@ -2,6 +2,7 @@ package auth
 
 import (
 	"math"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -119,6 +120,23 @@ func RateLimitAllows(name string, cost, rate float64, period time.Duration) bool
 // it.
 func RateLimitCheck(name string, cost, rate float64, period time.Duration) bool {
 	return globalLimiter.isAllowed(name, cost, rate, period, false)
+}
+
+// DoRateLimit will rate limit an operation on both the user and ip address.
+// If it is not allowed, it will return false
+// If it is allowed, it will then assume the operation was carried out and return true
+func DoRateLimit(operation string, req *http.Request, user string, rate float64, period time.Duration) bool {
+	userlimit := operation + ":" + user
+	iplimit := operation + ":" + GetIPAddress(req)
+
+	if !globalLimiter.isAllowed(userlimit, 1, rate, period, false) ||
+		!globalLimiter.isAllowed(iplimit, 1, rate, period, false) {
+		HTTPPanic(429, "try again later")
+	}
+
+	globalLimiter.isAllowed(userlimit, 1, rate, period, true)
+	globalLimiter.isAllowed(iplimit, 1, rate, period, true)
+	return true
 }
 
 // HasRateLimit returns true if the bucket for the given operation has
