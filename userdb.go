@@ -106,7 +106,7 @@ func (tx UserTx) GetInfo(userid int64, newAccount bool) UserInfo {
 	i.Methods = tx.GetOauthMethods(userid)
 	i.NewAccount = newAccount
 	if i.Methods == nil {
-		i.Methods = make([]string, 0, 0)
+		i.Methods = make([]string, 0)
 	}
 
 	return i
@@ -123,7 +123,8 @@ func (tx UserTx) CreatePasswordUser(email string, password string) int64 {
 		err = tx.Tx.QueryRow(`INSERT INTO Users (email, password, settings, created, lastSeen) 
 			VALUES ($1, $2, $3, $4, $5) RETURNING userid`, email, password, "", now, now).Scan(&id)
 	} else {
-		res, err := tx.Tx.Exec(`INSERT INTO Users (email, password, settings, created, lastSeen) 
+		var res sql.Result
+		res, err = tx.Tx.Exec(`INSERT INTO Users (email, password, settings, created, lastSeen) 
 			VALUES ($1, $2, $3, $4, $5)`,
 			email, password, "", now, now)
 

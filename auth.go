@@ -49,7 +49,7 @@ var DefaultSettings = Settings{
 // ErrorDuplicateUser indicates that a user cannot be created because
 // the email already exists. It should be used instead of the cryptic
 // user database constraint validation error.
-var ErrorDuplicateUser = errors.New("Duplicate user")
+var ErrorDuplicateUser = errors.New("duplicate user")
 
 // ErrorUnauthorized is used when the user is not signed in, but is
 // required to be for the operation.
@@ -162,7 +162,7 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if thing := recover(); thing != nil {
 			message := fmt.Sprintf("%v", thing)
-			if strings.Index(message, "UNIQUE") >= 0 {
+			if strings.Contains(message, "UNIQUE") {
 				HTTPPanic(http.StatusBadRequest, "email already exists")
 			}
 			panic(thing)
@@ -175,7 +175,7 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 	email := strings.TrimSpace(strings.ToLower(r.FormValue("email")))
 	password := r.FormValue("password")
 
-	if email == "" || strings.Index(email, "@") == -1 {
+	if email == "" || !strings.Contains(email, "@") {
 		HTTPPanic(http.StatusBadRequest, "not an email address")
 	}
 
@@ -242,7 +242,7 @@ func (a *Handler) handleUserSignout(w http.ResponseWriter, req *http.Request) {
 func IsRequestSecure(r *http.Request) bool {
 	return strings.ToLower(r.URL.Scheme) == "https" ||
 		strings.ToLower(r.Header.Get("X-Forwarded-Proto")) == "https" ||
-		strings.Index(r.Header.Get("Forwarded"), "proto=https") >= 0
+		strings.Contains(r.Header.Get("Forwarded"), "proto=https")
 }
 
 // SignInUser performs the final steps of signing in an authenticated user,
@@ -346,7 +346,7 @@ func (a *Handler) handleUserUpdate(w http.ResponseWriter, req *http.Request) {
 	email := strings.ToLower(req.FormValue("email"))
 	password := req.FormValue("password")
 
-	if email == "" && password == "" || email != "" && strings.Index(email, "@") < 0 {
+	if email == "" && password == "" || email != "" && !strings.Contains(email, "@") {
 		HTTPPanic(400, "not an email address")
 	}
 
@@ -414,7 +414,7 @@ func (a *Handler) handleUserForgotPassword(w http.ResponseWriter, r *http.Reques
 		HTTPPanic(429, "too many requests")
 	}
 
-	if strings.Index(email, "@") < 0 {
+	if !strings.Contains(email, "@") {
 		HTTPPanic(400, "please enter an email address")
 	}
 

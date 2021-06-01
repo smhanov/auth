@@ -8,7 +8,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 
-	"encoding/json"
 	"encoding/pem"
 	"encoding/xml"
 	"errors"
@@ -49,7 +48,7 @@ func (a *Handler) initSaml(db DB) {
 			log.Panic(err)
 		}
 
-		privatekey = string(buffer.Bytes())
+		privatekey = buffer.String()
 		//log.Printf("Encoded as %s", privatekey)
 		tx.SetValue("privatekey", privatekey)
 
@@ -73,7 +72,7 @@ func (a *Handler) initSaml(db DB) {
 		buffer.Reset()
 		pem.Encode(&buffer, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 
-		certificate = string(buffer.Bytes())
+		certificate = buffer.String()
 		//log.Printf("Encoded as %s", certificate)
 		tx.SetValue("certificate", certificate)
 
@@ -98,10 +97,6 @@ func (a *Handler) initSaml(db DB) {
 	a.privateKey = privateKey
 	a.certificate = cert
 
-}
-
-type mymiddleware struct {
-	*samlsp.Middleware
 }
 
 func (a *Handler) newSamlSP(req *http.Request, metadataXML string) *samlsp.Middleware {
@@ -149,8 +144,6 @@ func (a *Handler) newSamlSP(req *http.Request, metadataXML string) *samlsp.Middl
 	return m
 }
 
-const maxSamlSignInTime = 15 * 60
-
 func (a *Handler) handleSaml(tx Tx, w http.ResponseWriter, req *http.Request, email, metadataXML string) {
 	sp := a.newSamlSP(req, metadataXML)
 
@@ -192,10 +185,10 @@ func (a *Handler) handleSamlMetadata(w http.ResponseWriter, req *http.Request) {
 	w.Write(buf)
 }
 
-func prettyPrint(i interface{}) string {
+/*func prettyPrint(i interface{}) string {
 	s, _ := json.MarshalIndent(i, "", "  ")
 	return string(s)
-}
+}*/
 
 func (a *Handler) handleSamlACS(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
@@ -239,7 +232,8 @@ func (a *Handler) handleSamlACS(w http.ResponseWriter, r *http.Request) {
 				}
 
 				// check if it matches an email address.
-				if attr.FriendlyName == "mail" {
+				if attr.FriendlyName == "mail" ||
+					attr.Name == "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress" {
 					email = value.Value
 				}
 			}
@@ -279,7 +273,7 @@ func (a *Handler) handleSamlACS(w http.ResponseWriter, r *http.Request) {
 		returnTo = cookie.Value
 	}
 	SignInUser(tx, w, userid, created, IsRequestSecure(r))
-	http.Redirect(w, r, returnTo, 303) // code 303 changes redirect to a GET request.
+	http.Redirect(w, r, returnTo, http.StatusSeeOther) // code 303 changes redirect to a GET request.
 }
 
 func isEmail(input string) bool {

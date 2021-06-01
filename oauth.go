@@ -33,7 +33,7 @@ func getURL(url string) string {
 func httpRequest(url string, params map[string]string, jsonResult interface{}) {
 	client := &http.Client{}
 
-	r, err := http.NewRequest("GET", url, nil)
+	r, _ := http.NewRequest("GET", url, nil)
 	q := r.URL.Query()
 	for key, value := range params {
 		q.Add(key, value)

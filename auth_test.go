@@ -35,6 +35,7 @@ func (tx MyTx) GetUserInfo() auth.UserInfo {
 	return 7
 }
 
+//lint:ignore U1000 ...
 func justTestCompile() {
 	db := MyDB{auth.NewUserDB(sqlx.MustConnect("sqlite3", ":memory:"))}
 
@@ -56,9 +57,8 @@ type testRequest struct {
 	params map[string]string
 
 	//response
-	code   int
-	cookie string
-	json   map[string]interface{}
+	code int
+	json map[string]interface{}
 
 	// status field of header
 	status string
@@ -773,7 +773,7 @@ func (tc *testClient) do(t *testing.T, trs ...testRequest) {
 			}
 
 			for key, value := range tr.json {
-				result, _ := data[key]
+				result := data[key]
 				if fmt.Sprintf("%v", result) != fmt.Sprintf("%v", value) {
 					t.Errorf("*** Expected '%v'='%v' in json result, but got '%v'", key, value, result)
 				}
@@ -786,10 +786,8 @@ func (tc *testClient) do(t *testing.T, trs ...testRequest) {
 
 func (tc *testClient) makeRequest(t *testing.T, path string, params map[string]string) *http.Response {
 	data := url.Values{}
-	if params != nil {
-		for name, value := range params {
-			data.Set(name, value)
-		}
+	for name, value := range params {
+		data.Set(name, value)
 	}
 
 	t.Logf("    %s", path+"?"+data.Encode())
