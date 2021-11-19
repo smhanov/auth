@@ -242,7 +242,8 @@ func (a *Handler) handleUserSignout(w http.ResponseWriter, req *http.Request) {
 func IsRequestSecure(r *http.Request) bool {
 	return strings.ToLower(r.URL.Scheme) == "https" ||
 		strings.ToLower(r.Header.Get("X-Forwarded-Proto")) == "https" ||
-		strings.Contains(r.Header.Get("Forwarded"), "proto=https")
+		strings.Contains(r.Header.Get("Forwarded"), "proto=https") ||
+		r.TLS != nil
 }
 
 // SignInUser performs the final steps of signing in an authenticated user,
