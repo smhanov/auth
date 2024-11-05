@@ -317,7 +317,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 
 	if method != "" {
 		foreignID, foreignEmail := VerifyOauth(method, token)
-		userid, created = signInOauth(tx, "facebook", foreignID, foreignEmail)
+		userid, created = signInOauth(tx, method, foreignID, foreignEmail)
 	} else {
 		var realPassword string
 		userid, realPassword = tx.GetPassword(username)
