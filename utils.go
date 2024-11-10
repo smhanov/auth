@@ -150,6 +150,16 @@ func now() time.Time {
 	return time.Now().Add(timeOffset)
 }
 
+// GetHost returns the host of the request, taking into account
+// x-forwarded-host headers. May include the port as well.
+func GetHost(request *http.Request) string {
+	forwardedHost := request.Header.Get("X-Forwarded-Host")
+	if forwardedHost != "" {
+		return forwardedHost
+	}
+	return request.Host
+}
+
 // GetRequestIP returns the Ip address of the request, taking into account
 // x-forwarded-for headers.
 func GetIPAddress(request *http.Request) string {
