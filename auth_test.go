@@ -31,6 +31,11 @@ func (db MyDB) Begin(ctx context.Context) auth.Tx {
 	return MyTx{db.db.Begin(ctx)}
 }
 
+// GetInfo implements the DB interface
+func (db MyDB) GetInfo(tx auth.Tx, userid int64, newAccount bool) auth.UserInfo {
+	return tx.GetInfo(userid, newAccount)
+}
+
 func (tx MyTx) GetUserInfo() auth.UserInfo {
 	return 7
 }

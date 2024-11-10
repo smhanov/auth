@@ -68,6 +68,8 @@ type UserInfo interface{}
 // Any errors should be expressed through panic.
 type DB interface {
 	Begin(ctx context.Context) Tx
+	// GetInfo optionally allows customizing the user info returned
+	GetInfo(tx Tx, userid int64, newAccount bool) UserInfo
 }
 
 // Tx is a database transaction that has methods for
@@ -109,6 +111,7 @@ type Handler struct {
 
 	privateKey  *rsa.PrivateKey
 	certificate *x509.Certificate
+	getInfoFn   func(tx Tx, userid int64, newAccount bool) UserInfo
 }
 
 // Number of password cracking attempts allowed
@@ -152,7 +155,7 @@ func (a *Handler) handleUserGet(w http.ResponseWriter, r *http.Request) {
 	tx := a.db.Begin(r.Context())
 	defer tx.Rollback()
 
-	info := tx.GetInfo(GetUserID(tx, r), false)
+	info := a.getInfoFn(tx, GetUserID(tx, r), false)
 	tx.Commit()
 
 	SendJSON(w, info)
@@ -186,9 +189,9 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 	userid := tx.CreatePasswordUser(email, a.settings.HashPasswordFn(password))
 	var info UserInfo
 	if r.FormValue("signin") != "0" {
-		info = SignInUser(tx, w, userid, true, IsRequestSecure(r))
+		info = a.SignInUser(tx, w, userid, true, IsRequestSecure(r))
 	} else {
-		info = tx.GetInfo(userid, true)
+		info = a.getInfoFn(tx, userid, true)
 	}
 	tx.Commit()
 	SendJSON(w, info)
@@ -258,11 +261,11 @@ func IsRequestSecure(r *http.Request) bool {
 // info := auth.SignInUser(tx, w, userid, false, auth.IsRequestSecure(r))
 // tx.Commit()
 // auth.SendJSON(w, info)
-func SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool, secure bool) UserInfo {
+func (a *Handler) SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool, secure bool) UserInfo {
 	cookie := MakeCookie()
 	tx.SignIn(userid, cookie)
 
-	info := tx.GetInfo(userid, newAccount)
+	info := a.getInfoFn(tx, userid, newAccount)
 
 	expiration := now().Add(30 * 24 * time.Hour)
 	cookieVal := http.Cookie{
@@ -308,7 +311,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 	metaData := tx.GetSamlIdentityProviderForUser(username)
 	if metaData != "" {
 		if sso != "" {
-			a.handleSaml(tx, w, req, username, metaData)
+			a.handleSaml(w, req, metaData)
 		} else {
 			HTTPPanic(http.StatusProxyAuthRequired, "sso required")
 		}
@@ -334,7 +337,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	info := SignInUser(tx, w, userid, created, IsRequestSecure(req))
+	info := a.SignInUser(tx, w, userid, created, IsRequestSecure(req))
 	tx.Commit()
 	SendJSON(w, info)
 }
@@ -404,7 +407,7 @@ func (a *Handler) handleUserOauthAdd(w http.ResponseWriter, r *http.Request) {
 	SendJSON(w, info)
 }
 
-func (a *Handler) handleUserForgotPassword(w http.ResponseWriter, r *http.Request) {
+func (a *Handler) handleUserForgotPassword(_ http.ResponseWriter, r *http.Request) {
 	tx := a.db.Begin(r.Context())
 	defer tx.Rollback()
 
@@ -453,7 +456,7 @@ func (a *Handler) handleUserResetPassword(w http.ResponseWriter, r *http.Request
 	}
 
 	tx.UpdatePassword(userid, a.settings.HashPasswordFn(password))
-	info := SignInUser(tx, w, userid, false, IsRequestSecure(r))
+	info := a.SignInUser(tx, w, userid, false, IsRequestSecure(r))
 	tx.Commit()
 	SendJSON(w, info)
 }
@@ -491,8 +494,20 @@ func New(db DB, settings Settings) http.Handler {
 		settings.DefaultContext = context.Background()
 	}
 
-	handler := &Handler{settings, db, nil, nil}
-	handler.initSaml(db)
+	handler := &Handler{settings: settings, db: db}
 
+	// Set up the default info getter
+	if customDB, ok := db.(interface {
+		GetInfo(tx Tx, userid int64, newAccount bool) UserInfo
+	}); ok {
+		handler.getInfoFn = customDB.GetInfo
+	} else {
+		// Use default implementation from UserDB
+		handler.getInfoFn = func(tx Tx, userid int64, newAccount bool) UserInfo {
+			return tx.GetInfo(userid, newAccount)
+		}
+	}
+
+	handler.initSaml(db)
 	return RecoverErrors(handler)
 }

@@ -64,7 +64,7 @@ func Example_saml() {
 
 // Fetch the URL and return its contents as a string
 func fetchURL(url string) string {
-	resp, err := http.Get("https://samltest.id/saml/idp")
+	resp, err := http.Get(url)
 	if err != nil {
 		panic(err)
 	}

@@ -1,116 +1,146 @@
 /*
-Package auth provides boring user authentication code for golang.
+Package auth provides a complete user authentication system for Go web applications.
 
-Because I'm tired of writing the same things over and over again.
+Quick Start:
 
-Provides a complete user authentication system, including:
+    package main
 
-1. Email / password
+    import (
+        "log"
+        "net/http"
+        "github.com/jmoiron/sqlx"
+        _ "github.com/mattn/go-sqlite3"
+        "github.com/smhanov/auth"
+    )
 
-2. Facebook and Google authentication
+    func main() {
+        // Open database connection
+        db, err := sqlx.Open("sqlite3", "users.db")
+        if err != nil {
+            log.Fatal(err)
+        }
 
-3. Change of password / email
+        // Configure authentication settings
+        settings := auth.DefaultSettings
+        settings.SMTPServer = "smtp.gmail.com:587"
+        settings.SMTPUser = "your-email@gmail.com"
+        settings.SMTPPassword = "your-app-password"
+        settings.EmailFrom = "Your App <your-email@gmail.com>"
+        settings.ForgotPasswordSubject = "Password Reset Request"
+        settings.ForgotPasswordBody = "Click here to reset your password: ${TOKEN}"
 
-4. Forgotten passwords
+        // Create the auth handler
+        authHandler := auth.New(auth.NewUserDB(db), settings)
 
-5. SAML SSO
+        // Mount the auth endpoints at /user/
+        http.Handle("/user/", authHandler)
+        log.Fatal(http.ListenAndServe(":8080", nil))
+    }
 
-6. Rate limiting
+Features:
 
-Tested with SQLITE and Postgresql. To use it, create a database using the sqlx
-module, and then create an auth.UserDB from that, and then call auth.New() to
-create an HTTP handler for "/user/" (note the trailing slash). See the example below. It provides
-the following endpoints which work with GET and POST. It also allows CORS and
-OPTIONS requests.
+1. Email/Password Authentication
+   - Create accounts with email/password
+   - Sign in with email/password
+   - Password reset via email
+   - Change email/password
+   - Rate limiting on authentication attempts
 
-If you want, you can write all your own database code by implementing the UserDB
-interface.
+2. OAuth Support
+   - Facebook authentication
+   - Google authentication 
+   - Link multiple auth methods to one account
 
-All HTTP responses might have the additional "Status" header which is a
-user-readable explanation of what went wrong.
+3. SAML Single Sign-On
+   - Support for enterprise SSO
+   - Multiple identity providers
+   - Automatic metadata handling
 
-Auth
+4. Customizable User Info
+   You can override the GetInfo method to return custom user information:
 
-/user/auth has three cases. In case one, pass "email" and "password" and you will
-receive either an HTTP error, or the UserInfo structure.
+    type MyDB struct {
+        *auth.UserDB
+    }
 
-In the second case, use "method" and "token" to perform oauth authentication.
-This will either sign in or create a new user. If the method is "facebook" then
-the token is used to get the user's email from facebook's servers.
+    type CustomUserInfo struct {
+        UserID    int64  `json:"userid"`
+        Email     string `json:"email"` 
+        Name      string `json:"name"`
+        AvatarURL string `json:"avatar_url"`
+    }
 
-If, when you pass email and password, you get HTTP error 407, that means
-SSO authentication is required. You should reload the whole web page to the
-url /user/auth?sso=1&email= giving the email address. This will start the SSO
-authentication process, and when done it will return to /.
+    func (db *MyDB) GetInfo(tx auth.Tx, userid int64, newAccount bool) auth.UserInfo {
+        // Query additional user data from your database
+        var info CustomUserInfo
+        err := tx.(*auth.UserTx).Tx.Get(&info, 
+            `SELECT userid, email, name, avatar_url 
+             FROM users WHERE userid = ?`, userid)
+        if err != nil {
+            panic(err)
+        }
+        return info
+    }
 
-Create
+    // Use your custom DB:
+    authHandler := auth.New(&MyDB{auth.NewUserDB(db)}, settings)
 
-/user/create will create a password user, using the "email" and "password".
-The user will be signed in and the response will be identical to /user/authenticate
-or /user/get.
+API Endpoints:
 
-The user is automatically signed in, unless the optional "signin" parameter is "0".
+POST /user/auth
+- Sign in with email/password: email=user@example.com&password=secret
+- Sign in with OAuth: method=facebook&token=oauth-token
+- Sign in with SAML: email=user@company.com&sso=1
 
-Get
+POST /user/create
+- Create account: email=user@example.com&password=secret
+- Optional signin=0 to create without signing in
 
-/user/get will retrieve the user's information and return it as JSON, or
-return code 401 if not signed in.
+GET /user/get
+- Get current user info
+- Returns 401 if not signed in
 
-Signout
+POST /user/signout
+- Sign out current user
 
-/user/signout will forget the user's session cookie. It always
-returns code 200
+POST /user/update
+- Update email: email=new@example.com
+- Update password: password=newpassword
 
-Update
+POST /user/oauth/add
+- Add OAuth method: method=facebook&token=oauth-token
+- Optional update_email=true to update email
 
-/user/update takes two parameters, "email" and "password".
-If email is non-blank, it changes the user's email. If password
-is non-blank, it changes the password.
+POST /user/oauth/remove
+- Remove OAuth method: method=facebook
 
-Oauth add
+POST /user/forgotpassword
+- Request password reset: email=user@example.com
 
-/user/oauth/add performs takes three parameters, "method",
-"token" and "update_email". It performs oauth authentication
-and adds the authentication to the user's account so they can
-later sign in. If "update_email" is true, it also changes the
-user's email address to the one provided by the oauth provider.
+POST /user/resetpassword
+- Reset password: token=reset-token&password=newpassword
 
-The method parameter can be "facebook" or "google".
+GET /user/saml/metadata
+- Get SAML service provider metadata
 
-Oauth remove
+POST /user/saml/acs
+- SAML assertion consumer service endpoint
 
-/user/oauth/remove removes the oauth method from the user's account.
-The only parameter is "method" which can be "facebook" or "google"
+Database Schema:
+The package automatically creates these tables:
+- Users: Basic user info and credentials
+- Sessions: Active login sessions
+- OAuth: Linked OAuth accounts
+- PasswordResetTokens: Password reset tokens
+- AuthSettings: Configuration settings
 
-Forgot password
+See schema.go for complete table definitions.
 
-/user/forgotpassword just takes an "email" parameter. If the user
-exists in the system, it sends an email with the password reset
-token to the user's email address. Otherwise it returns a sensible
-error message in the Status header.
-
-The text of the email sent is specified in the settings. It must have ${TOKEN}
-in it. This will be replaced with the actual secret token. See the example.
-
-Reset password
-
-/user/resetpassword takes the "token" parameter and "password".
-It will update the user's password and also sign them in, returning
-UserInfo.
-
-SAML
-
-The SAML service provider metadata is accessed from /user/saml/metadata.
-The SAML ACS url is /user/saml/acs. To use SAML, you will need to
-override the GetSamlIdentityProviderForUser method and return the
-identity provider XML metadata based on the user's email address. You
-will also need to add the XML metadata for the provider using the
-AddSamlIdentityProviderMetadata method.
-
-Database tables
-
-Auth will automatically create database tables if they do not exist to hold
-users, sessions, oauth data, and password reset tokens. Passwords are stored
-as salted values returned by bcrypt. You can see the schema in schema.go
+Security Features:
+- Passwords hashed with bcrypt
+- Rate limiting on authentication attempts
+- CSRF protection
+- Secure session cookies
+- SQL injection protection via sqlx
 */
 package auth

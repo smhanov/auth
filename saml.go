@@ -144,7 +144,7 @@ func (a *Handler) newSamlSP(req *http.Request, metadataXML string) *samlsp.Middl
 	return m
 }
 
-func (a *Handler) handleSaml(tx Tx, w http.ResponseWriter, req *http.Request, email, metadataXML string) {
+func (a *Handler) handleSaml(w http.ResponseWriter, req *http.Request, metadataXML string) {
 	sp := a.newSamlSP(req, metadataXML)
 
 	returnTo := req.Header.Get("Referer")
@@ -272,7 +272,7 @@ func (a *Handler) handleSamlACS(w http.ResponseWriter, r *http.Request) {
 		})
 		returnTo = cookie.Value
 	}
-	SignInUser(tx, w, userid, created, IsRequestSecure(r))
+	a.SignInUser(tx, w, userid, created, IsRequestSecure(r))
 	http.Redirect(w, r, returnTo, http.StatusSeeOther) // code 303 changes redirect to a GET request.
 }
 

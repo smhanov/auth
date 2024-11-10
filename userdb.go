@@ -25,6 +25,11 @@ func NewUserDB(db *sqlx.DB) *UserDB {
 	return udb
 }
 
+// GetInfo implements the DB interface by delegating to the transaction
+func (db *UserDB) GetInfo(tx Tx, userid int64, newAccount bool) UserInfo {
+	return tx.GetInfo(userid, newAccount)
+}
+
 func (db *UserDB) createTables() {
 	var err error
 	if db.db.DriverName() == "postgres" {
