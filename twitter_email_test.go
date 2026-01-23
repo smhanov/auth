@@ -85,7 +85,7 @@ func TestTwitterCallbackWithEmail(t *testing.T) {
 					}`)),
 				}, nil
 			}
-			if req.URL.String() == "https://api.twitter.com/2/users/me?user.fields=email" {
+			if req.URL.String() == "https://api.twitter.com/2/users/me?user.fields=confirmed_email" {
 				// Return fake user with email
 				return &http.Response{
 					StatusCode: 200,
@@ -95,7 +95,7 @@ func TestTwitterCallbackWithEmail(t *testing.T) {
 							"id": "12345",
 							"name": "Test User",
 							"username": "testuser",
-							"email": "realemail@example.com"
+							"confirmed_email": "realemail@example.com"
 						}
 					}`)),
 				}, nil

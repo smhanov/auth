@@ -117,7 +117,7 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 
 	fetchURL := twitterUserURL
 	if a.settings.TwitterUseEmail {
-		fetchURL += "?user.fields=email"
+		fetchURL += "?user.fields=confirmed_email"
 	}
 
 	resp, err := client.Get(fetchURL)
@@ -133,10 +133,10 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 
 	var userResp struct {
 		Data struct {
-			ID       string `json:"id"`
-			Name     string `json:"name"`
-			Username string `json:"username"`
-			Email    string `json:"email"`
+			ID             string `json:"id"`
+			Name           string `json:"name"`
+			Username       string `json:"username"`
+			ConfirmedEmail string `json:"confirmed_email"`
 		} `json:"data"`
 	}
 
@@ -160,8 +160,8 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 	// Create a stable "email" identity.
 	// The library uses email as a primary human-readable key.
 	// We'll use id + "@twitter.com" distinct placeholder, or username.
-	if a.settings.TwitterUseEmail && userResp.Data.Email != "" {
-		email = userResp.Data.Email
+	if a.settings.TwitterUseEmail && userResp.Data.ConfirmedEmail != "" {
+		email = userResp.Data.ConfirmedEmail
 	} else {
 		email = fmt.Sprintf("%s@twitter.example.com", userResp.Data.Username)
 	}

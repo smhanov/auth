@@ -79,7 +79,7 @@ To enable OAuth login with social providers, configure the following settings in
   - TwitterClientID: Your Twitter OAuth 2.0 Client ID from the Twitter Developer Portal.
   - TwitterClientSecret: Your Twitter OAuth 2.0 Client Secret.
   - TwitterRedirectURL: The redirect URL registered with Twitter for your application.
-  - TwitterUseEmail: Set to true to request the user's email address during authentication. This requires the users.email scope and will fetch the email from the /2/users/me endpoint with user.fields=email.
+  - TwitterUseEmail: Set to true to request the user's email address during authentication. This requires the users.email scope and will fetch the email from the /2/users/me endpoint with user.fields=confirmed_email.
 
 2. Google
 
