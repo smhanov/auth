@@ -1,220 +1,367 @@
 /*
-Package auth provides a complete user authentication system for Go web applications.
+Package auth provides a complete, self-hosted user authentication system for Go web applications.
 
-Quick Start:
+It includes:
+  - Email/Password authentication
+  - OAuth2 login (Google, Facebook, Twitter)
+  - SAML 2.0 support for Enterprise SSO
+  - User session management via HTTP cookies
+  - Password reset flows via Email
+  - Automatic database schema management
+
+# Quick Start
+
+This example shows how to set up the authentication server with a SQLite database.
 
 	package main
 
 	import (
-	    "log"
-	    "net/http"
-	    "github.com/jmoiron/sqlx"
-	    _ "github.com/mattn/go-sqlite3"
-	    "github.com/smhanov/auth"
+		"log"
+		"net/http"
+
+		"github.com/jmoiron/sqlx"
+		_ "github.com/mattn/go-sqlite3"
+		"github.com/smhanov/auth"
 	)
 
 	func main() {
-	    // Open database connection
-	    db, err := sqlx.Open("sqlite3", "users.db")
-	    if err != nil {
-	        log.Fatal(err)
-	    }
+		// 1. Connect to the database
+		db, err := sqlx.Open("sqlite3", "users.db")
+		if err != nil {
+			log.Fatal(err)
+		}
 
-	    // Configure authentication settings
-	    settings := auth.DefaultSettings
-	    settings.SMTPServer = "smtp.gmail.com:587"
-	    settings.SMTPUser = "your-email@gmail.com"
-	    settings.SMTPPassword = "your-app-password"
-	    settings.EmailFrom = "Your App <your-email@gmail.com>"
-	    settings.ForgotPasswordSubject = "Password Reset Request"
-	    settings.ForgotPasswordBody = "Click here to reset your password: ${TOKEN}"
+		// 2. Configure auth settings
+		settings := auth.DefaultSettings
+		settings.SMTPServer = "smtp.gmail.com:587"
+		settings.SMTPUser = "example@gmail.com"
+		settings.SMTPPassword = "app-password"
+		settings.EmailFrom = "MyApp <support@myapp.com>"
+		
+		// 3. Create the handler
+		// NewUserDB will automatically create necessary tables
+		authHandler := auth.New(auth.NewUserDB(db), settings)
 
-	    // Create the auth handler
-	    authHandler := auth.New(auth.NewUserDB(db), settings)
+		// 4. Mount the handler
+		// The endpoints will be available under /user/...
+		http.Handle("/user/", authHandler)
 
-	    // Mount the auth endpoints at /user/
-	    http.Handle("/user/", authHandler)
-	    log.Fatal(http.ListenAndServe(":8080", nil))
+		log.Println("Listening on :8080")
+		log.Fatal(http.ListenAndServe(":8080", nil))
 	}
 
-Features:
+# Authenticaton Primer
 
-1. Email/Password Authentication
-  - Create accounts with email/password
-  - Sign in with email/password
-  - Password reset via email
-  - Change email/password
-  - Rate limiting on authentication attempts
+If you are unfamiliar with the different authentication methods, here is a guide on when to use what.
 
-2. OAuth Support
+1. OAuth 2.0 (Social Login)
 
-	The library supports two OAuth flows:
+OAuth is the industry standard for letting users sign in with their existing accounts (Google, Facebook, Twitter).
+This reduces friction as users don't need to create a new password for your site.
 
-	A. Server-Side Redirect Flow (Recommended)
-	   - Simpler for frontend (just a link)
-	   - Supports Twitter (PKCE), Google, and Facebook
-	   - Securely handles tokens on the server
+  - How it works: Your app redirects the user to the provider (e.g., Google). The user consents, and Google redirects them back to your site with a token.
+  - Use case: Consumer-facing applications.
 
-	B. Client-Side Token Flow (Legacy)
-	   - Requires frontend to perform OAuth dance
-	   - Sends token to backend for verification
-	   - Supports Google and Facebook
+2. SAML 2.0 (Enterprise SSO)
 
-Configuration:
+SAML is an XML-based standard used by large enterprises. It allows companies to manage their employees' access to your software centrally.
+Instead of creating 100 accounts on your site, the company connects their Identity Provider (IdP) like Okta or Active Directory to your app.
 
-	settings := auth.DefaultSettings
+  - How it works: Your app redirects the employee to their company login page. After successful login, the company sends a signed XML "Assertion" to your app.
+  - Use case: B2B software selling to large organizations.
 
-	// Configure Email/Password (see above) ...
+# Tutorials & Usage
 
-	// Configure Twitter (OAuth 2.0 PKCE)
-	// You can leave RedirectURL blank to use the default: /user/oauth/callback/twitter
-	settings.TwitterClientID = "your_twitter_client_id"
-	settings.TwitterClientSecret = "your_twitter_client_secret"
-	// settings.TwitterRedirectURL = "https://yourdomain.com/user/oauth/callback/twitter"
+Authentication Endpoints:
 
-	// Configure Google
-	// You can leave RedirectURL blank to use the default: /user/oauth/callback/google
-	settings.GoogleClientID = "your_google_client_id"
-	settings.GoogleClientSecret = "your_google_client_secret"
-	// settings.GoogleRedirectURL = "https://yourdomain.com/user/oauth/callback/google"
+The following endpoints are exposed by the handler:
 
-	// Configure Facebook
-	// You can leave RedirectURL blank to use the default: /user/oauth/callback/facebook
-	settings.FacebookClientID = "your_facebook_client_id"
-	settings.FacebookClientSecret = "your_facebook_client_secret"
-	// settings.FacebookRedirectURL = "https://yourdomain.com/user/oauth/callback/facebook"
+  - POST /user/create        - Create a new account (email, password)
+  - POST /user/auth          - Sign in (email, password)
+  - GET  /user/signout       - Sign out the current user
+  - GET  /user/get           - Get current user info (JSON)
+  - POST /user/forgotpassword - Request a password reset email
+  - POST /user/resetpassword  - Reset password using token
 
-Usage (Frontend):
+1. Email and Password Authentication
 
-	To sign in with a provider using the recommended Server-Side flow, simply create a link
-	that points to the appropriate login endpoint:
+To sign up a new user, send a POST request:
 
-	<a href="/user/oauth/login/twitter">Login with Twitter</a>
-	<a href="/user/oauth/login/google">Login with Google</a>
-	<a href="/user/oauth/login/facebook">Login with Facebook</a>
+	POST /user/create
+	Form Data:
+		email: user@example.com
+		password: secret-password
+		signin: 1  (Optional: set to 1 to auto-login after creation)
 
-	The system will:
-	1. Redirect the user to the provider.
-	2. Handle the callback.
-	3. Create or Link the user account.
-	4. Sign the user in (set session cookie).
-	5. Redirect the user back to the root "/" (or link them if they were already logged in).
-
-Usage (Legacy Client-Side Flow):
-
-	If you already have a token from a client-side SDK (like the Facebook Javascript SDK),
-	you can POST it to `/user/auth`:
+To sign in:
 
 	POST /user/auth
-	method=facebook
-	token={access_token}
+	Form Data:
+		email: user@example.com
+		password: secret-password
 
-3. SAML Authentication
-  - Google authentication
-  - Link multiple auth methods to one account
+The server responds with a JSON object containing user info and sets a `session` cookie.
 
-3. SAML Single Sign-On
+2. OAuth Interaction (Google, Facebook, Twitter)
 
-  - Support for enterprise SSO
+To enable OAuth, configure the Client ID and Secret in your Settings:
 
-  - Multiple identity providers
+	settings.GoogleClientID = "YOUR_CLIENT_ID"
+	settings.GoogleClientSecret = "YOUR_CLIENT_SECRET"
+	settings.GoogleRedirectURL = "http://localhost:8080/user/oauth/callback/google"
 
-  - Automatic metadata handling
+Start the login flow by sending the user to the login URL.
 
-    4. Customizable User Info
-    You can override the GetInfo method to return custom user information:
+Redirect Parameters:
+You can control where the user is sent after a successful login using the `next` query parameter.
 
-    type MyDB struct {
-    *auth.UserDB
-    }
+	<a href="/user/oauth/login/google?next=/dashboard">Login with Google</a>
 
-    type CustomUserInfo struct {
-    UserID    int64  `json:"userid"`
-    Email     string `json:"email"`
-    Name      string `json:"name"`
-    AvatarURL string `json:"avatar_url"`
-    }
+If `next` is omitted, the user is redirected to `/`.
 
-    func (db *MyDB) GetInfo(tx auth.Tx, userid int64, newAccount bool) auth.UserInfo {
-    // Query additional user data from your database
-    var info CustomUserInfo
-    err := tx.(*auth.UserTx).Tx.Get(&info,
-    `SELECT userid, email, name, avatar_url
-    FROM users WHERE userid = ?`, userid)
-    if err != nil {
-    panic(err)
-    }
-    return info
-    }
+3. SAML Interaction
 
-    // Use your custom DB:
-    authHandler := auth.New(&MyDB{auth.NewUserDB(db)}, settings)
+SAML requires a certificate and private key to sign requests. If columns `certificate` and `privatekey` are missing in the database, the library generates them automatically.
 
-    5. Event Hooks
-    You can receive callbacks when a user authenticates or creates an account:
+Your Service Provider (SP) Metadata is available at:
 
-    settings.OnAuthEvent = func(tx auth.Tx, action string, userid int64, info auth.UserInfo) {
-    // action is "auth", "create", or "resetpassword"
-    // tx is the database transaction
-    // info is the user information returned to the client
-    }
+	GET /user/saml/metadata
 
-API Endpoints:
+Provide this URL (or the XML content) to your customer's IT department to configure their IdP.
+The Assertion Consumer Service (ACS) URL they will need is:
 
-POST /user/auth
-- Sign in with email/password: email=user@example.com&password=secret
-- Sign in with OAuth: method=facebook&token=oauth-token
-- Sign in with SAML: email=user@company.com&sso=1
+	POST /user/saml/acs
 
-POST /user/create
-- Create account: email=user@example.com&password=secret
-- Optional signin=0 to create without signing in
+4. Database Integration
 
-GET /user/get
-- Get current user info
-- Returns 401 if not signed in
+The package includes a default `UserDB` based on `sqlx` which supports SQLite and PostgreSQL.
+It handles user storage, session tracking, and OAuth linkage internally.
+You can wrap or replace `NewUserDB` if you need custom data storage.
 
-POST /user/signout
-- Sign out current user
+# Advanced Customization
 
-POST /user/update
-- Update email: email=new@example.com
-- Update password: password=newpassword
+1. Customizing User Information with GetInfo
 
-POST /user/oauth/add
-- Add OAuth method: method=facebook&token=oauth-token
-- Optional update_email=true to update email
+By default, the system returns basic user info (userid, email, settings, and OAuth methods).
+To customize the information returned to clients, override the GetInfo method.
 
-POST /user/oauth/remove
-- Remove OAuth method: method=facebook
+Example:
 
-POST /user/forgotpassword
-- Request password reset: email=user@example.com
+	type MyDB struct {
+		*auth.UserDB
+	}
 
-POST /user/resetpassword
-- Reset password: token=reset-token&password=newpassword
+	type CustomUserInfo struct {
+		UserID     int64    `json:"userid"`
+		Email      string   `json:"email"`
+		Name       string   `json:"name"`
+		AvatarURL  string   `json:"avatar_url"`
+		Premium    bool     `json:"premium"`
+		Methods    []string `json:"methods"`
+		NewAccount bool     `json:"newAccount"`
+	}
 
-GET /user/saml/metadata
-- Get SAML service provider metadata
+	func (db *MyDB) GetInfo(tx auth.Tx, userid int64, newAccount bool) auth.UserInfo {
+		// Access the underlying sqlx transaction
+		utx := tx.(*auth.UserTx)
+		
+		var info CustomUserInfo
+		err := utx.Tx.Get(&info, `
+			SELECT u.userid, u.email, p.name, p.avatar_url, p.premium
+			FROM users u
+			LEFT JOIN user_profiles p ON u.userid = p.userid
+			WHERE u.userid = $1
+		`, userid)
+		if err != nil {
+			panic(err)
+		}
+		
+		info.Methods = utx.GetOauthMethods(userid)
+		info.NewAccount = newAccount
+		
+		return info
+	}
 
-POST /user/saml/acs
-- SAML assertion consumer service endpoint
+	// Create the handler with your custom DB
+	authHandler := auth.New(&MyDB{auth.NewUserDB(db)}, settings)
 
-Database Schema:
-The package automatically creates these tables:
-- Users: Basic user info and credentials
-- Sessions: Active login sessions
-- OAuth: Linked OAuth accounts
-- PasswordResetTokens: Password reset tokens
-- AuthSettings: Configuration settings
+Important: The GetInfo method is called after successful authentication, account creation, and password resets. It returns the data that will be sent to the client as JSON.
 
-See schema.go for complete table definitions.
+2. Event Hooks with OnAuthEvent
 
-Security Features:
-- Passwords hashed with bcrypt
-- Rate limiting on authentication attempts
-- CSRF protection
-- Secure session cookies
-- SQL injection protection via sqlx
+To perform actions when users authenticate (e.g., logging, analytics, welcome emails), use the OnAuthEvent callback:
+
+	settings.OnAuthEvent = func(tx auth.Tx, action string, userid int64, info auth.UserInfo) {
+		switch action {
+		case "create":
+			// User just created an account
+			log.Printf("New user created: %d", userid)
+			// Send welcome email, create user profile, etc.
+			
+		case "auth":
+			// User signed in
+			log.Printf("User %d signed in", userid)
+			// Update last login timestamp, analytics, etc.
+			
+		case "resetpassword":
+			// User reset their password
+			log.Printf("User %d reset password", userid)
+			// Send security notification email
+		}
+		
+		// You can access the database within the transaction
+		utx := tx.(*auth.UserTx)
+		utx.Tx.Exec(`UPDATE users SET last_login = NOW() WHERE userid = $1`, userid)
+	}
+
+Note: The callback is executed within the same database transaction as the authentication. If you panic or the transaction fails, the authentication will be rolled back. For async operations (like sending emails), consider using a goroutine.
+
+3. Updating User Information
+
+To update a user's email or password, send a POST request to `/user/update`:
+
+Update Email Only:
+
+	POST /user/update
+	Form Data:
+		email: newemail@example.com
+	
+	Requires: User must be signed in (have valid session cookie)
+
+Update Password Only:
+
+	POST /user/update
+	Form Data:
+		password: new-secret-password
+	
+	Requires: User must be signed in (have valid session cookie)
+
+Update Both:
+
+	POST /user/update
+	Form Data:
+		email: newemail@example.com
+		password: new-secret-password
+	
+	Requires: User must be signed in (have valid session cookie)
+
+If neither email nor password is provided, the request returns a 400 error.
+Email addresses are automatically converted to lowercase.
+
+4. Adding OAuth Methods to Existing Accounts
+
+Users can link OAuth providers to their existing accounts:
+
+	POST /user/oauth/add
+	Form Data:
+		method: google       (or "facebook", "twitter")
+		token: oauth-token   (from OAuth flow)
+		update_email: true   (Optional: update user's email to OAuth email)
+	
+	Requires: User must be signed in
+
+This is useful when:
+  - A user initially created an account with email/password and now wants to link Google
+  - A user wants to link multiple OAuth providers to one account
+
+To remove an OAuth method:
+
+	POST /user/oauth/remove
+	Form Data:
+		method: google
+	
+	Requires: User must be signed in
+
+5. SAML Identity Provider Selection
+
+For enterprise applications where different users authenticate with different SAML providers, override GetSamlIdentityProviderForUser:
+
+	type MyDB struct {
+		*auth.UserDB
+	}
+
+	type MyTx struct {
+		auth.Tx
+	}
+
+	func (db *MyDB) Begin(ctx context.Context) auth.Tx {
+		return &MyTx{db.UserDB.Begin(ctx)}
+	}
+
+	func (tx *MyTx) GetSamlIdentityProviderForUser(email string) string {
+		// Route by email domain
+		if strings.HasSuffix(email, "@company1.com") {
+			return tx.GetSamlIdentityProviderByID("https://company1.okta.com")
+		}
+		if strings.HasSuffix(email, "@company2.com") {
+			return tx.GetSamlIdentityProviderByID("https://company2-idp.com")
+		}
+		
+		// Return empty string for non-SAML users (will use regular auth)
+		return ""
+	}
+
+Before using SAML, register the Identity Provider metadata:
+
+	// Fetch and register IDP metadata (do this once, not on every startup)
+	tx := db.Begin(context.Background())
+	defer tx.Rollback()
+	
+	idpMetadataXML := fetchFromURL("https://company.okta.com/metadata")
+	idpID := auth.GetSamlID(idpMetadataXML)
+	tx.AddSamlIdentityProviderMetadata(idpID, idpMetadataXML)
+	
+	tx.Commit()
+
+See example_saml_test.go for a complete working example.
+
+# Common Pitfalls
+
+1. Session Cookies and HTTPS
+
+Session cookies are automatically set to "Secure" when the request comes over HTTPS (checked via `auth.IsRequestSecure(r)`).
+If you're behind a reverse proxy (nginx, CloudFlare, etc.), make sure it sets the `X-Forwarded-Proto` header correctly.
+
+2. Email Case Sensitivity
+
+All email addresses are automatically converted to lowercase before storage and comparison.
+Don't manually lowercase emails in your client code - the server handles this.
+
+3. OAuth Redirect URLs
+
+OAuth redirect URLs must be registered with the provider (Google, Facebook, Twitter) and must match exactly, including protocol and port.
+During development, use `http://localhost:8080/user/oauth/callback/google` (or your actual port).
+In production, use `https://yourdomain.com/user/oauth/callback/google`.
+
+4. Password Reset Token Expiry
+
+Password reset tokens expire after a set period (default implementation doesn't specify, but typically 1-24 hours).
+Tokens are single-use - once used successfully, they're deleted from the database.
+
+5. CORS and Cookies
+
+If your frontend is on a different domain than your auth server, you need to:
+  - Use the `auth.CORS()` wrapper: `http.Handle("/user/", auth.CORS(authHandler))`
+  - Configure your frontend to send credentials: `fetch(url, {credentials: 'include'})`
+  - Ensure both domains are over HTTPS in production
+
+6. Transaction Management
+
+When calling `auth.SignInUser()` or other database operations directly:
+  - Always defer `tx.Rollback()` immediately after creating the transaction
+  - Only call `tx.Commit()` after all operations succeed
+  - Don't call both Commit and Rollback - Rollback is safe to call even after Commit
+
+Example:
+
+	tx := db.Begin(context.Background())
+	defer tx.Rollback()  // Safe to call even if we Commit
+	
+	// ... do work ...
+	
+	info := authHandler.SignInUser(tx, w, userid, false, auth.IsRequestSecure(r))
+	tx.Commit()
+	auth.SendJSON(w, info)
+
 */
 package auth
