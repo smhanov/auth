@@ -50,7 +50,7 @@ This example shows how to set up the authentication server with a SQLite databas
 		log.Fatal(http.ListenAndServe(":8080", nil))
 	}
 
-# Authenticaton Primer
+# Authentication Primer
 
 If you are unfamiliar with the different authentication methods, here is a guide on when to use what.
 
@@ -69,6 +69,29 @@ Instead of creating 100 accounts on your site, the company connects their Identi
 
   - How it works: Your app redirects the employee to their company login page. After successful login, the company sends a signed XML "Assertion" to your app.
   - Use case: B2B software selling to large organizations.
+
+# OAuth Configuration
+
+To enable OAuth login with social providers, configure the following settings in the Settings struct:
+
+1. Twitter
+
+  - TwitterClientID: Your Twitter OAuth 2.0 Client ID from the Twitter Developer Portal.
+  - TwitterClientSecret: Your Twitter OAuth 2.0 Client Secret.
+  - TwitterRedirectURL: The redirect URL registered with Twitter for your application.
+  - TwitterUseEmail: Set to true to request the user's email address during authentication. This requires the users.email scope and will fetch the email from the /2/users/me endpoint with user.fields=email.
+
+2. Google
+
+  - GoogleClientID: Your Google OAuth 2.0 Client ID.
+  - GoogleClientSecret: Your Google OAuth 2.0 Client Secret.
+  - GoogleRedirectURL: The redirect URL registered with Google.
+
+3. Facebook
+
+  - FacebookClientID: Your Facebook OAuth 2.0 App ID.
+  - FacebookClientSecret: Your Facebook OAuth 2.0 App Secret.
+  - FacebookRedirectURL: The redirect URL registered with Facebook.
 
 # Tutorials & Usage
 

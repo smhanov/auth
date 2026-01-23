@@ -122,22 +122,19 @@ func (a *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	// Handle existing session (link account) or new login
 	currentUserID := CheckUserID(tx, r)
 	
-	// Delegate to signInOauth logic
-	userid, created := signInOauth(tx, "google", userResp.Sub, userResp.Email)
-	
-	// Linking logic
+	var userid int64
+	var created bool
 	if currentUserID != 0 {
-		if userid != currentUserID {
-			existingID := tx.GetOauthUser("google", userResp.Sub)
-			if existingID != 0 {
-				if existingID != currentUserID {
-					HTTPPanic(http.StatusBadRequest, "Google account already linked to another user")
-				}
-			} else {
-				tx.AddOauthUser("google", userResp.Sub, currentUserID)
-			}
-			userid = currentUserID
+		// Link account
+		existingID := tx.GetOauthUser("google", userResp.Sub)
+		if existingID != 0 && existingID != currentUserID {
+			HTTPPanic(http.StatusBadRequest, "Google account already linked to another user")
 		}
+		tx.AddOauthUser("google", userResp.Sub, currentUserID)
+		userid = currentUserID
+	} else {
+		// Delegate to signInOauth logic
+		userid, created = signInOauth(tx, "google", userResp.Sub, userResp.Email)
 	}
 
 	// Clear the state cookie

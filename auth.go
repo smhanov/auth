@@ -47,6 +47,7 @@ type Settings struct {
 	TwitterClientID     string
 	TwitterClientSecret string
 	TwitterRedirectURL  string
+	TwitterUseEmail     bool
 
 	// Google Settings
 	GoogleClientID     string

@@ -20,11 +20,15 @@ const (
 )
 
 func (a *Handler) getTwitterConfig(r *http.Request) *oauth2.Config {
+	scopes := []string{"users.read", "tweet.read", "offline.access"}
+	if a.settings.TwitterUseEmail {
+		scopes = append(scopes, "users.email")
+	}
 	return &oauth2.Config{
 		ClientID:     a.settings.TwitterClientID,
 		ClientSecret: a.settings.TwitterClientSecret,
 		RedirectURL:  resolveRedirectURL(a.settings.TwitterRedirectURL, r, "/user/oauth/callback/twitter"),
-		Scopes:       []string{"users.read", "tweet.read", "offline.access"},
+		Scopes:       scopes,
 		Endpoint: oauth2.Endpoint{
 			AuthURL:  twitterAuthorizeURL,
 			TokenURL: twitterTokenURL,
@@ -110,7 +114,13 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 
 	// Fetch user info
 	client := config.Client(r.Context(), token)
-	resp, err := client.Get(twitterUserURL)
+
+	fetchURL := twitterUserURL
+	if a.settings.TwitterUseEmail {
+		fetchURL += "?user.fields=email"
+	}
+
+	resp, err := client.Get(fetchURL)
 	if err != nil {
 		HTTPPanic(http.StatusInternalServerError, "Failed to get user info: %v", err)
 	}
@@ -126,6 +136,7 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 			ID       string `json:"id"`
 			Name     string `json:"name"`
 			Username string `json:"username"`
+			Email    string `json:"email"`
 		} `json:"data"`
 	}
 
@@ -139,59 +150,35 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 
 	// Handle existing session (link account) or new login
 	currentUserID := CheckUserID(tx, r)
-	
+
 	var email string
 	// Twitter v2 users/me doesn't clearly give email without special permissions/requests.
 	// We'll map the ID and Name as requested.
 	// Since we need an email for the user model, we might construct a dummy one if creating.
 	// Or we rely on the logic in signInOauth to handle creation.
-	
-	// Create a stable "email" identity. 
+
+	// Create a stable "email" identity.
 	// The library uses email as a primary human-readable key.
 	// We'll use id + "@twitter.com" distinct placeholder, or username.
-	email = fmt.Sprintf("%s@twitter.example.com", userResp.Data.Username)
+	if a.settings.TwitterUseEmail && userResp.Data.Email != "" {
+		email = userResp.Data.Email
+	} else {
+		email = fmt.Sprintf("%s@twitter.example.com", userResp.Data.Username)
+	}
 
-	// Delegate to signInOauth logic
-	// If currentUserID > 0, we might want to just link.
-	// signInOauth handles linking if we pass the same ID? 
-	// No, signInOauth does login or create. 
-	
-	// Let's look at signInOauth, it takes a Tx.
-	// It calls AddOauthUser if needed.
-	
-	userid, created := signInOauth(tx, "twitter", userResp.Data.ID, email)
-	
-	// If user was already logged in, we should probably ensure we linked to THAT user
-	// instead of potentially logging into a different one.
+	var userid int64
+	var created bool
 	if currentUserID != 0 {
-		// Verify if the oauth user is different from current user
-		if userid != currentUserID {
-			// This means this Twitter account is already linked to another user, 
-			// or was just created as a new user.
-			// Complex logic: Merge? Error?
-			// For simplicity: If we are logged in, we want to ADD this method to CURRENT user.
-			// signInOauth might have created a new user or found an existing one.
-			
-			// If it created a new user, we can remove it and link to current.
-			// If it found an existing match, we can't easily merge without user input.
-			
-			// Let's refine:
-			// If logged in -> AddOauthUser
-			// If not logged in -> signInOauth
-			
-			// Check if this Twitter ID is already linked
-			existingID := tx.GetOauthUser("twitter", userResp.Data.ID)
-			if existingID != 0 {
-				if existingID != currentUserID {
-					HTTPPanic(http.StatusBadRequest, "Twitter account already linked to another user")
-				}
-				// Already linked to us, do nothing
-			} else {
-				tx.AddOauthUser("twitter", userResp.Data.ID, currentUserID)
-			}
-			userid = currentUserID
-			// created = false // effectively
+		// Link account
+		existingID := tx.GetOauthUser("twitter", userResp.Data.ID)
+		if existingID != 0 && existingID != currentUserID {
+			HTTPPanic(http.StatusBadRequest, "Twitter account already linked to another user")
 		}
+		tx.AddOauthUser("twitter", userResp.Data.ID, currentUserID)
+		userid = currentUserID
+	} else {
+		// Delegate to signInOauth logic
+		userid, created = signInOauth(tx, "twitter", userResp.Data.ID, email)
 	}
 
 	// Clear the state cookie

@@ -141,21 +141,19 @@ func (a *Handler) handleFacebookCallback(w http.ResponseWriter, r *http.Request)
 		email = fmt.Sprintf("%s@facebook.example.com", userResp.ID)
 	}
 
-	userid, created := signInOauth(tx, "facebook", userResp.ID, email)
-	
-	// Linking logic
+	var userid int64
+	var created bool
 	if currentUserID != 0 {
-		if userid != currentUserID {
-			existingID := tx.GetOauthUser("facebook", userResp.ID)
-			if existingID != 0 {
-				if existingID != currentUserID {
-					HTTPPanic(http.StatusBadRequest, "Facebook account already linked to another user")
-				}
-			} else {
-				tx.AddOauthUser("facebook", userResp.ID, currentUserID)
-			}
-			userid = currentUserID
+		// Link account
+		existingID := tx.GetOauthUser("facebook", userResp.ID)
+		if existingID != 0 && existingID != currentUserID {
+			HTTPPanic(http.StatusBadRequest, "Facebook account already linked to another user")
 		}
+		tx.AddOauthUser("facebook", userResp.ID, currentUserID)
+		userid = currentUserID
+	} else {
+		// Delegate to signInOauth logic
+		userid, created = signInOauth(tx, "facebook", userResp.ID, email)
 	}
 
 	// Clear the state cookie
