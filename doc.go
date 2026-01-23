@@ -37,7 +37,7 @@ This example shows how to set up the authentication server with a SQLite databas
 		settings.SMTPUser = "example@gmail.com"
 		settings.SMTPPassword = "app-password"
 		settings.EmailFrom = "MyApp <support@myapp.com>"
-		
+
 		// 3. Create the handler
 		// NewUserDB will automatically create necessary tables
 		authHandler := auth.New(auth.NewUserDB(db), settings)
@@ -164,7 +164,7 @@ Example:
 	func (db *MyDB) GetInfo(tx auth.Tx, userid int64, newAccount bool) auth.UserInfo {
 		// Access the underlying sqlx transaction
 		utx := tx.(*auth.UserTx)
-		
+
 		var info CustomUserInfo
 		err := utx.Tx.Get(&info, `
 			SELECT u.userid, u.email, p.name, p.avatar_url, p.premium
@@ -175,10 +175,10 @@ Example:
 		if err != nil {
 			panic(err)
 		}
-		
+
 		info.Methods = utx.GetOauthMethods(userid)
 		info.NewAccount = newAccount
-		
+
 		return info
 	}
 
@@ -197,18 +197,18 @@ To perform actions when users authenticate (e.g., logging, analytics, welcome em
 			// User just created an account
 			log.Printf("New user created: %d", userid)
 			// Send welcome email, create user profile, etc.
-			
+
 		case "auth":
 			// User signed in
 			log.Printf("User %d signed in", userid)
 			// Update last login timestamp, analytics, etc.
-			
+
 		case "resetpassword":
 			// User reset their password
 			log.Printf("User %d reset password", userid)
 			// Send security notification email
 		}
-		
+
 		// You can access the database within the transaction
 		utx := tx.(*auth.UserTx)
 		utx.Tx.Exec(`UPDATE users SET last_login = NOW() WHERE userid = $1`, userid)
@@ -225,7 +225,7 @@ Update Email Only:
 	POST /user/update
 	Form Data:
 		email: newemail@example.com
-	
+
 	Requires: User must be signed in (have valid session cookie)
 
 Update Password Only:
@@ -233,7 +233,7 @@ Update Password Only:
 	POST /user/update
 	Form Data:
 		password: new-secret-password
-	
+
 	Requires: User must be signed in (have valid session cookie)
 
 Update Both:
@@ -242,7 +242,7 @@ Update Both:
 	Form Data:
 		email: newemail@example.com
 		password: new-secret-password
-	
+
 	Requires: User must be signed in (have valid session cookie)
 
 If neither email nor password is provided, the request returns a 400 error.
@@ -257,7 +257,7 @@ Users can link OAuth providers to their existing accounts:
 		method: google       (or "facebook", "twitter")
 		token: oauth-token   (from OAuth flow)
 		update_email: true   (Optional: update user's email to OAuth email)
-	
+
 	Requires: User must be signed in
 
 This is useful when:
@@ -269,7 +269,7 @@ To remove an OAuth method:
 	POST /user/oauth/remove
 	Form Data:
 		method: google
-	
+
 	Requires: User must be signed in
 
 5. SAML Identity Provider Selection
@@ -296,7 +296,7 @@ For enterprise applications where different users authenticate with different SA
 		if strings.HasSuffix(email, "@company2.com") {
 			return tx.GetSamlIdentityProviderByID("https://company2-idp.com")
 		}
-		
+
 		// Return empty string for non-SAML users (will use regular auth)
 		return ""
 	}
@@ -306,11 +306,11 @@ Before using SAML, register the Identity Provider metadata:
 	// Fetch and register IDP metadata (do this once, not on every startup)
 	tx := db.Begin(context.Background())
 	defer tx.Rollback()
-	
+
 	idpMetadataXML := fetchFromURL("https://company.okta.com/metadata")
 	idpID := auth.GetSamlID(idpMetadataXML)
 	tx.AddSamlIdentityProviderMetadata(idpID, idpMetadataXML)
-	
+
 	tx.Commit()
 
 See example_saml_test.go for a complete working example.
@@ -356,12 +356,11 @@ Example:
 
 	tx := db.Begin(context.Background())
 	defer tx.Rollback()  // Safe to call even if we Commit
-	
+
 	// ... do work ...
-	
+
 	info := authHandler.SignInUser(tx, w, userid, false, auth.IsRequestSecure(r))
 	tx.Commit()
 	auth.SendJSON(w, info)
-
 */
 package auth

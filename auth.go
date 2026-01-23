@@ -102,6 +102,7 @@ type Tx interface {
 	CreatePasswordUser(email string, password string) int64
 	CreatePasswordResetToken(userid int64, token string, expiry int64)
 	GetID(cookie string) int64
+	GetEmail(userid int64) string
 	GetInfo(userid int64, newAccount bool) UserInfo
 	GetOauthMethods(userid int64) []string
 	GetOauthUser(method string, foreignid string) int64
@@ -255,6 +256,34 @@ func CheckUserID(tx Tx, r *http.Request) int64 {
 		userid = tx.GetID(cookie.Value)
 	}
 	return userid
+}
+
+// GetUserIDAndEmail returns the userid and email. It panics with an HttpError if the
+// user is not signed in.
+func GetUserIDAndEmail(tx Tx, r *http.Request) (int64, string) {
+	userid, email := CheckUserIDAndEmail(tx, r)
+
+	if userid == 0 {
+		HTTPPanic(http.StatusUnauthorized, "Not signed in.")
+	}
+
+	return userid, email
+}
+
+// CheckUserIDAndEmail returns the userid and email if the user is signed in,
+// or 0 and ""
+func CheckUserIDAndEmail(tx Tx, r *http.Request) (int64, string) {
+	cookie, err := r.Cookie("session")
+
+	var userid int64
+	var email string
+	if err == nil {
+		userid = tx.GetID(cookie.Value)
+		if userid != 0 {
+			email = tx.GetEmail(userid)
+		}
+	}
+	return userid, email
 }
 
 func signOut(tx Tx, req *http.Request) {

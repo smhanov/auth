@@ -86,6 +86,22 @@ func (tx UserTx) GetID(cookie string) int64 {
 	return userid
 }
 
+// GetEmail returns the email address for the given userid.
+func (tx UserTx) GetEmail(userid int64) string {
+	query := `
+		SELECT email
+		FROM users
+		WHERE userid=$1`
+
+	var email string
+	err := tx.Tx.Get(&email, query, userid)
+	if err != nil {
+		panic(err)
+	}
+
+	return email
+}
+
 // GetInfo by default returns a structure containing the user's userid,
 // email, and settings.
 func (tx UserTx) GetInfo(userid int64, newAccount bool) UserInfo {
