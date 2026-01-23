@@ -42,6 +42,21 @@ type Settings struct {
 
 	// Context used during initialization
 	DefaultContext context.Context
+
+	// Twitter Settings
+	TwitterClientID     string
+	TwitterClientSecret string
+	TwitterRedirectURL  string
+
+	// Google Settings
+	GoogleClientID     string
+	GoogleClientSecret string
+	GoogleRedirectURL  string
+
+	// Facebook Settings
+	FacebookClientID     string
+	FacebookClientSecret string
+	FacebookRedirectURL  string
 }
 
 // DefaultSettings provide some reasonable defaults
@@ -150,6 +165,18 @@ func (a *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.handleSamlMetadata(w, r)
 	case "/user/saml/acs":
 		a.handleSamlACS(w, r)
+	case "/user/oauth/login/twitter":
+		a.handleTwitterLogin(w, r)
+	case "/user/oauth/callback/twitter":
+		a.handleTwitterCallback(w, r)
+	case "/user/oauth/login/google":
+		a.handleGoogleLogin(w, r)
+	case "/user/oauth/callback/google":
+		a.handleGoogleCallback(w, r)
+	case "/user/oauth/login/facebook":
+		a.handleFacebookLogin(w, r)
+	case "/user/oauth/callback/facebook":
+		a.handleFacebookCallback(w, r)
 	default:
 		w.WriteHeader(http.StatusNotFound)
 	}

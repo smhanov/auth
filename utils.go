@@ -176,3 +176,17 @@ func GetIPAddress(request *http.Request) string {
 
 	return ipAddress
 }
+
+func resolveRedirectURL(configuredURL string, r *http.Request, defaultPath string) string {
+	if configuredURL == "" {
+		configuredURL = defaultPath
+	}
+	if strings.HasPrefix(configuredURL, "/") {
+		scheme := "http"
+		if IsRequestSecure(r) {
+			scheme = "https"
+		}
+		return fmt.Sprintf("%s://%s%s", scheme, r.Host, configuredURL)
+	}
+	return configuredURL
+}

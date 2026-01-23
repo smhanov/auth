@@ -45,6 +45,14 @@ receive either an HTTP error, or the UserInfo structure.
 In the second case, use "method" and "token" to perform oauth authentication.
 This will either sign in or create a new user. If the method is "facebook" or "google" then the token is used to get the user's email from the authority's servers.
 
+### Twitter (OAuth 2.0 PKCE)
+
+To enable Twitter authentication:
+
+1.  Set `TwitterClientID`, `TwitterClientSecret`, and `TwitterRedirectURL` in `auth.Settings`.
+2.  Send the user to `/user/oauth/login/twitter` to start the flow.
+3.  The system will handle the callback at `/user/oauth/callback/twitter`.
+
 ## Create
 
 /user/create will create a password user, using the "email" and "password".
