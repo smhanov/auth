@@ -30,6 +30,10 @@ type Settings struct {
 	// Alternatively, you can use this to send email
 	SendEmailFn func(email string, url string)
 
+	// OnAuthEvent is called when a user signs in or authenticates.
+	// The action parameter will be one of "auth", "create", or "resetpassword".
+	OnAuthEvent func(tx Tx, action string, userid int64, info UserInfo)
+
 	// Optionally override password hash from bcrypt default. You may override HashPassword,
 	// or both. If you override HashPassword but not CompareHashedPassword, then
 	// a CompareHashPasswordFn will be created based on HashPasswordFn.
@@ -193,6 +197,11 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 	} else {
 		info = a.getInfoFn(tx, userid, true)
 	}
+
+	if a.settings.OnAuthEvent != nil {
+		a.settings.OnAuthEvent(tx, "create", userid, info)
+	}
+
 	tx.Commit()
 	SendJSON(w, info)
 }
@@ -338,6 +347,11 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 	}
 
 	info := a.SignInUser(tx, w, userid, created, IsRequestSecure(req))
+
+	if a.settings.OnAuthEvent != nil {
+		a.settings.OnAuthEvent(tx, "auth", userid, info)
+	}
+
 	tx.Commit()
 	SendJSON(w, info)
 }
@@ -457,6 +471,11 @@ func (a *Handler) handleUserResetPassword(w http.ResponseWriter, r *http.Request
 
 	tx.UpdatePassword(userid, a.settings.HashPasswordFn(password))
 	info := a.SignInUser(tx, w, userid, false, IsRequestSecure(r))
+
+	if a.settings.OnAuthEvent != nil {
+		a.settings.OnAuthEvent(tx, "resetpassword", userid, info)
+	}
+
 	tx.Commit()
 	SendJSON(w, info)
 }

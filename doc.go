@@ -85,6 +85,15 @@ Features:
     // Use your custom DB:
     authHandler := auth.New(&MyDB{auth.NewUserDB(db)}, settings)
 
+5. Event Hooks
+   You can receive callbacks when a user authenticates or creates an account:
+
+    settings.OnAuthEvent = func(tx auth.Tx, action string, userid int64, info auth.UserInfo) {
+        // action is "auth", "create", or "resetpassword"
+        // tx is the database transaction
+        // info is the user information returned to the client
+    }
+
 API Endpoints:
 
 POST /user/auth
