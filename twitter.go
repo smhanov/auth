@@ -203,7 +203,16 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 		http.Redirect(w, r, next, http.StatusFound)
 	} else {
 		// We were logging in.
-		a.SignInUser(tx, w, userid, created, IsRequestSecure(r))
+		info := a.SignInUser(tx, w, userid, created, IsRequestSecure(r))
+
+		if a.settings.OnAuthEvent != nil {
+			action := "auth"
+			if created {
+				action = "create"
+			}
+			a.settings.OnAuthEvent(tx, action, userid, info)
+		}
+
 		tx.Commit()
 		
 		// If it's a browser redirect, we should probably redirect to main app.

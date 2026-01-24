@@ -169,7 +169,16 @@ func (a *Handler) handleFacebookCallback(w http.ResponseWriter, r *http.Request)
 		tx.Commit()
 		http.Redirect(w, r, next, http.StatusFound)
 	} else {
-		a.SignInUser(tx, w, userid, created, IsRequestSecure(r))
+		info := a.SignInUser(tx, w, userid, created, IsRequestSecure(r))
+
+		if a.settings.OnAuthEvent != nil {
+			action := "auth"
+			if created {
+				action = "create"
+			}
+			a.settings.OnAuthEvent(tx, action, userid, info)
+		}
+
 		tx.Commit()
 		http.Redirect(w, r, next, http.StatusFound)
 	}
