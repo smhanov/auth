@@ -78,20 +78,22 @@ To enable OAuth login with social providers, configure the following settings in
 
   - TwitterClientID: Your Twitter OAuth 2.0 Client ID from the Twitter Developer Portal.
   - TwitterClientSecret: Your Twitter OAuth 2.0 Client Secret.
-  - TwitterRedirectURL: The redirect URL registered with Twitter for your application.
+  - TwitterRedirectURL: Optional override for the callback URL. In most cases, leave this blank to use the default `{scheme}://{server}/user/oauth/callback/twitter`, derived from the HTTP request.
   - TwitterUseEmail: Set to true to request the user's email address during authentication. This requires the users.email scope and will fetch the email from the /2/users/me endpoint with user.fields=confirmed_email.
 
 2. Google
 
   - GoogleClientID: Your Google OAuth 2.0 Client ID.
   - GoogleClientSecret: Your Google OAuth 2.0 Client Secret.
-  - GoogleRedirectURL: The redirect URL registered with Google.
+  - GoogleRedirectURL: Optional override for the callback URL. In most cases, leave this blank to use the default `{scheme}://{server}/user/oauth/callback/google`, derived from the HTTP request.
 
 3. Facebook
 
   - FacebookClientID: Your Facebook OAuth 2.0 App ID.
   - FacebookClientSecret: Your Facebook OAuth 2.0 App Secret.
-  - FacebookRedirectURL: The redirect URL registered with Facebook.
+  - FacebookRedirectURL: Optional override for the callback URL. In most cases, leave this blank to use the default `{scheme}://{server}/user/oauth/callback/facebook`, derived from the HTTP request.
+
+When using this default callback URL behavior behind a proxy, ensure both `X-Forwarded-Proto` and `X-Forwarded-Host` are set correctly.
 
 # Tutorials & Usage
 
@@ -127,11 +129,13 @@ The server responds with a JSON object containing user info and sets a `session`
 
 2. OAuth Interaction (Google, Facebook, Twitter)
 
-To enable OAuth, configure the Client ID and Secret in your Settings:
+To enable OAuth, configure the Client ID and Secret in your Settings. In most cases, leave `*RedirectURL` blank so the callback URL is automatically derived as `{scheme}://{server}/user/oauth/callback/{provider}` from the HTTP request:
 
 	settings.GoogleClientID = "YOUR_CLIENT_ID"
 	settings.GoogleClientSecret = "YOUR_CLIENT_SECRET"
-	settings.GoogleRedirectURL = "http://localhost:8080/user/oauth/callback/google"
+	// settings.GoogleRedirectURL = "" // recommended in most deployments
+
+If you are behind a reverse proxy, ensure `X-Forwarded-Proto` and `X-Forwarded-Host` are set so scheme and host are detected correctly.
 
 Start the login flow by sending the user to the login URL.
 
@@ -343,7 +347,7 @@ See example_saml_test.go for a complete working example.
 1. Session Cookies and HTTPS
 
 Session cookies are automatically set to "Secure" when the request comes over HTTPS (checked via `auth.IsRequestSecure(r)`).
-If you're behind a reverse proxy (nginx, CloudFlare, etc.), make sure it sets the `X-Forwarded-Proto` header correctly.
+If you're behind a reverse proxy (nginx, CloudFlare, etc.), make sure it sets `X-Forwarded-Proto` correctly. If you rely on default OAuth callback URL deduction, also set `X-Forwarded-Host`.
 
 2. Email Case Sensitivity
 
@@ -352,9 +356,10 @@ Don't manually lowercase emails in your client code - the server handles this.
 
 3. OAuth Redirect URLs
 
-OAuth redirect URLs must be registered with the provider (Google, Facebook, Twitter) and must match exactly, including protocol and port.
-During development, use `http://localhost:8080/user/oauth/callback/google` (or your actual port).
-In production, use `https://yourdomain.com/user/oauth/callback/google`.
+In most cases, leave `GoogleRedirectURL`, `FacebookRedirectURL`, and `TwitterRedirectURL` blank.
+When blank, the library uses `{scheme}://{server}/user/oauth/callback/{provider}`, where scheme and server are automatically deduced from the HTTP request.
+If your app runs behind a reverse proxy, ensure `X-Forwarded-Proto` and `X-Forwarded-Host` are set correctly so the derived URL matches what you register with each provider.
+OAuth redirect URLs registered with providers must still match exactly (including protocol and port) the URL your deployment will generate.
 
 4. Password Reset Token Expiry
 
