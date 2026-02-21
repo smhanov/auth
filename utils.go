@@ -186,7 +186,7 @@ func resolveRedirectURL(configuredURL string, r *http.Request, defaultPath strin
 		if IsRequestSecure(r) {
 			scheme = "https"
 		}
-		return fmt.Sprintf("%s://%s%s", scheme, r.Host, configuredURL)
+		return fmt.Sprintf("%s://%s%s", scheme, GetHost(r), configuredURL)
 	}
 	return configuredURL
 }

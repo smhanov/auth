@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -50,6 +51,7 @@ func (a *Handler) handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Now().Add(10 * time.Minute),
 		HttpOnly: true,
 		Secure:   IsRequestSecure(r),
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	// Redirect to Google
@@ -61,7 +63,8 @@ func (a *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	// Validate state
 	cookie, err := r.Cookie("google_oauth_state")
 	if err != nil {
-		HTTPPanic(http.StatusBadRequest, "State cookie missing")
+		log.Printf("Google OAuth callback: state cookie missing (err=%v, cookies=%v)", err, r.Cookies())
+		HTTPPanic(http.StatusBadRequest, "State cookie missing. Please try signing in again.")
 	}
 
 	parts := strings.Split(cookie.Value, "|")
@@ -77,7 +80,8 @@ func (a *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 
 	state := r.FormValue("state")
 	if state != expectedState {
-		HTTPPanic(http.StatusBadRequest, "Invalid state param")
+		log.Printf("Google OAuth callback: state mismatch (expected=%q, got=%q)", expectedState, state)
+		HTTPPanic(http.StatusBadRequest, "Invalid state param. Please try signing in again.")
 	}
 
 	// Exchange code for token
@@ -144,6 +148,7 @@ func (a *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Unix(0, 0),
 		HttpOnly: true,
 		Secure:   IsRequestSecure(r),
+		SameSite: http.SameSiteLaxMode,
 	})
 	
 	if currentUserID != 0 {

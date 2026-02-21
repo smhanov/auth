@@ -70,6 +70,7 @@ func (a *Handler) handleTwitterLogin(w http.ResponseWriter, r *http.Request) {
 		Expires:  time.Now().Add(10 * time.Minute),
 		HttpOnly: true,
 		Secure:   IsRequestSecure(r),
+		SameSite: http.SameSiteLaxMode,
 	})
 
 	// Redirect to Twitter
@@ -188,6 +189,7 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 		Expires:  time.Unix(0, 0),
 		HttpOnly: true,
 		Secure:   IsRequestSecure(r),
+		SameSite: http.SameSiteLaxMode,
 	})
 	
 	// Finalize
