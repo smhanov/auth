@@ -2,12 +2,9 @@ package auth
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
-	"strings"
-	"time"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -42,17 +39,10 @@ func (a *Handler) handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
 		next = "/"
 	}
 
-	// Store state and verifier in a short-lived cookie
-	cookieValue := fmt.Sprintf("%s|%s|%s", state, verifier, next)
-	http.SetCookie(w, &http.Cookie{
-		Name:     "google_oauth_state",
-		Value:    cookieValue,
-		Path:     "/",
-		Expires:  time.Now().Add(10 * time.Minute),
-		HttpOnly: true,
-		Secure:   IsRequestSecure(r),
-		SameSite: http.SameSiteLaxMode,
-	})
+	// Store verifier and next URL in memory keyed by state.
+	// This avoids relying on cookies which can be blocked by browser
+	// privacy settings, SameSite policies, or cookie partitioning.
+	storeOauthState("google", state, verifier, next)
 
 	// Redirect to Google
 	url := config.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(verifier))
@@ -60,29 +50,20 @@ func (a *Handler) handleGoogleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
-	// Validate state
-	cookie, err := r.Cookie("google_oauth_state")
-	if err != nil {
-		log.Printf("Google OAuth callback: state cookie missing (err=%v, cookies=%v)", err, r.Cookies())
-		HTTPPanic(http.StatusBadRequest, "State cookie missing. Please try signing in again.")
-	}
-
-	parts := strings.Split(cookie.Value, "|")
-	if len(parts) < 2 {
-		HTTPPanic(http.StatusBadRequest, "Invalid state cookie")
-	}
-	expectedState := parts[0]
-	verifier := parts[1]
-	next := "/"
-	if len(parts) >= 3 {
-		next = parts[2]
-	}
-
 	state := r.FormValue("state")
-	if state != expectedState {
-		log.Printf("Google OAuth callback: state mismatch (expected=%q, got=%q)", expectedState, state)
-		HTTPPanic(http.StatusBadRequest, "Invalid state param. Please try signing in again.")
+	if state == "" {
+		HTTPPanic(http.StatusBadRequest, "Missing state parameter")
 	}
+
+	// Retrieve verifier and next URL from in-memory storage
+	verifier, next, err := loadOauthState("google", state)
+	if err != nil {
+		log.Printf("Google OAuth callback: %v (state=%q)", err, state)
+		HTTPPanic(http.StatusBadRequest, "Invalid or expired sign-in session. Please try again.")
+	}
+
+	tx := a.db.Begin(r.Context())
+	defer tx.Rollback()
 
 	// Exchange code for token
 	code := r.FormValue("code")
@@ -119,13 +100,9 @@ func (a *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		HTTPPanic(http.StatusInternalServerError, "Failed to decode user info")
 	}
 
-	// Process user
-	tx := a.db.Begin(r.Context())
-	defer tx.Rollback()
-
 	// Handle existing session (link account) or new login
 	currentUserID := CheckUserID(tx, r)
-	
+
 	var userid int64
 	var created bool
 	if currentUserID != 0 {
@@ -141,16 +118,6 @@ func (a *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		userid, created = signInOauth(tx, "google", userResp.Sub, userResp.Email)
 	}
 
-	// Clear the state cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:     "google_oauth_state",
-		Path:     "/",
-		Expires:  time.Unix(0, 0),
-		HttpOnly: true,
-		Secure:   IsRequestSecure(r),
-		SameSite: http.SameSiteLaxMode,
-	})
-	
 	if currentUserID != 0 {
 		tx.Commit()
 		http.Redirect(w, r, next, http.StatusFound)

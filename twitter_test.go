@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -37,18 +38,11 @@ func TestTwitterLogin(t *testing.T) {
 	if !strings.HasPrefix(loc.String(), "https://twitter.com/i/oauth2/authorize") {
 		t.Errorf("Wrong redirect URL: %s", loc.String())
 	}
-	
-	cookies := resp.Cookies()
-	var stateCookie *http.Cookie
-	for _, c := range cookies {
-		if c.Name == "twitter_oauth_state" {
-			stateCookie = c
-			break
-		}
-	}
-	
-	if stateCookie == nil {
-		t.Fatal("State cookie not set")
+
+	// Verify state is in the redirect URL (no longer stored in cookies)
+	stateVal := loc.Query().Get("state")
+	if stateVal == "" {
+		t.Fatal("No state parameter in redirect URL")
 	}
 }
 
@@ -74,19 +68,19 @@ func TestTwitterCallback(t *testing.T) {
 	loginW := httptest.NewRecorder()
 	h.ServeHTTP(loginW, loginReq)
 	
-	cookies := loginW.Result().Cookies()
-	var stateCookie *http.Cookie
-	for _, c := range cookies {
-		if c.Name == "twitter_oauth_state" {
-			stateCookie = c
-			break
-		}
+	// Extract state from the redirect URL (server-side state, no cookies)
+	tResp := loginW.Result()
+	tLoc, err := tResp.Location()
+	if err != nil {
+		t.Fatal("No redirect location from Twitter login")
 	}
-	stateVal := strings.Split(stateCookie.Value, "|")[0]
+	stateVal := tLoc.Query().Get("state")
+	if stateVal == "" {
+		t.Fatal("No state in redirect URL")
+	}
 
 	// 2. Prepare Callback
-	callbackReq := httptest.NewRequest("GET", "/user/oauth/callback/twitter?state="+stateVal+"&code=fakerequestcode", nil)
-	callbackReq.AddCookie(stateCookie)
+	callbackReq := httptest.NewRequest("GET", "/user/oauth/callback/twitter?state="+url.QueryEscape(stateVal)+"&code=fakerequestcode", nil)
 	callbackW := httptest.NewRecorder()
 
 	// Mock Transport

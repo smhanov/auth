@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -41,22 +42,19 @@ func TestTwitterCallbackAuthHook(t *testing.T) {
 	loginW := httptest.NewRecorder()
 	h.ServeHTTP(loginW, loginReq)
 	
-	cookies := loginW.Result().Cookies()
-	var stateCookie *http.Cookie
-	for _, c := range cookies {
-		if c.Name == "twitter_oauth_state" {
-			stateCookie = c
-			break
-		}
+	// Extract state from the redirect URL (server-side state, no cookies)
+	tResp := loginW.Result()
+	tLoc, err := tResp.Location()
+	if err != nil {
+		t.Fatal("No redirect location from Twitter login")
 	}
-    if stateCookie == nil {
-        t.Fatal("No state cookie")
-    }
-	stateVal := strings.Split(stateCookie.Value, "|")[0]
+	stateVal := tLoc.Query().Get("state")
+	if stateVal == "" {
+		t.Fatal("No state in redirect URL")
+	}
 
 	// 2. Prepare Callback
-	callbackReq := httptest.NewRequest("GET", "/user/oauth/callback/twitter?state="+stateVal+"&code=fakerequestcode", nil)
-	callbackReq.AddCookie(stateCookie)
+	callbackReq := httptest.NewRequest("GET", "/user/oauth/callback/twitter?state="+url.QueryEscape(stateVal)+"&code=fakerequestcode", nil)
 	callbackW := httptest.NewRecorder()
 
 	// Mock Transport
@@ -110,19 +108,16 @@ func TestTwitterCallbackAuthHook(t *testing.T) {
 	loginW2 := httptest.NewRecorder()
 	h.ServeHTTP(loginW2, loginReq2)
 	
-	cookies2 := loginW2.Result().Cookies()
-	var stateCookie2 *http.Cookie
-	for _, c := range cookies2 {
-		if c.Name == "twitter_oauth_state" {
-			stateCookie2 = c
-			break
-		}
+	// Extract state from the redirect URL for second login
+	tResp2 := loginW2.Result()
+	tLoc2, err := tResp2.Location()
+	if err != nil {
+		t.Fatal("No redirect location from Twitter login 2")
 	}
-	stateVal2 := strings.Split(stateCookie2.Value, "|")[0]
+	stateVal2 := tLoc2.Query().Get("state")
 
 	// Callback 2
-	callbackReq2 := httptest.NewRequest("GET", "/user/oauth/callback/twitter?state="+stateVal2+"&code=fakerequestcode2", nil)
-	callbackReq2.AddCookie(stateCookie2)
+	callbackReq2 := httptest.NewRequest("GET", "/user/oauth/callback/twitter?state="+url.QueryEscape(stateVal2)+"&code=fakerequestcode2", nil)
 	callbackW2 := httptest.NewRecorder()
     
     // Reuse context with mock
@@ -155,22 +150,19 @@ func TestGoogleCallbackAuthHook(t *testing.T) {
 	loginW := httptest.NewRecorder()
 	h.ServeHTTP(loginW, loginReq)
 	
-	cookies := loginW.Result().Cookies()
-	var stateCookie *http.Cookie
-	for _, c := range cookies {
-		if c.Name == "google_oauth_state" {
-			stateCookie = c
-			break
-		}
+	// Extract state from the redirect URL (server-side state, no cookies)
+	gResp := loginW.Result()
+	gLoc, err := gResp.Location()
+	if err != nil {
+		t.Fatal("No redirect location from Google login")
 	}
-    if stateCookie == nil {
-        t.Fatal("No state cookie")
-    }
-	stateVal := strings.Split(stateCookie.Value, "|")[0]
+	stateVal := gLoc.Query().Get("state")
+	if stateVal == "" {
+		t.Fatal("No state in redirect URL")
+	}
 
 	// 2. Prepare Callback
-	callbackReq := httptest.NewRequest("GET", "/user/oauth/callback/google?state="+stateVal+"&code=fakerequestcode", nil)
-	callbackReq.AddCookie(stateCookie)
+	callbackReq := httptest.NewRequest("GET", "/user/oauth/callback/google?state="+url.QueryEscape(stateVal)+"&code=fakerequestcode", nil)
 	callbackW := httptest.NewRecorder()
 
 	// Mock Transport
@@ -231,22 +223,19 @@ func TestFacebookCallbackAuthHook(t *testing.T) {
 	loginW := httptest.NewRecorder()
 	h.ServeHTTP(loginW, loginReq)
 	
-	cookies := loginW.Result().Cookies()
-	var stateCookie *http.Cookie
-	for _, c := range cookies {
-		if c.Name == "facebook_oauth_state" {
-			stateCookie = c
-			break
-		}
+	// Extract state from the redirect URL (server-side state, no cookies)
+	fResp := loginW.Result()
+	fLoc, err := fResp.Location()
+	if err != nil {
+		t.Fatal("No redirect location from Facebook login")
 	}
-    if stateCookie == nil {
-        t.Fatal("No state cookie")
-    }
-	stateVal := strings.Split(stateCookie.Value, "|")[0]
+	stateVal := fLoc.Query().Get("state")
+	if stateVal == "" {
+		t.Fatal("No state in redirect URL")
+	}
 
 	// 2. Prepare Callback
-	callbackReq := httptest.NewRequest("GET", "/user/oauth/callback/facebook?state="+stateVal+"&code=fakerequestcode", nil)
-	callbackReq.AddCookie(stateCookie)
+	callbackReq := httptest.NewRequest("GET", "/user/oauth/callback/facebook?state="+url.QueryEscape(stateVal)+"&code=fakerequestcode", nil)
 	callbackW := httptest.NewRecorder()
 
 	// Mock Transport

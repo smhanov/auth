@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
-	"time"
 
 	"golang.org/x/oauth2"
 )
@@ -59,19 +57,8 @@ func (a *Handler) handleTwitterLogin(w http.ResponseWriter, r *http.Request) {
 		next = "/"
 	}
 
-	// Store state and verifier in a short-lived cookie
-	// In a real app, you might want to sign this or store in a server-side session
-	// Using a pipe separator to store both
-	cookieValue := fmt.Sprintf("%s|%s|%s", state, verifier, next)
-	http.SetCookie(w, &http.Cookie{
-		Name:     "twitter_oauth_state",
-		Value:    cookieValue,
-		Path:     "/",
-		Expires:  time.Now().Add(10 * time.Minute),
-		HttpOnly: true,
-		Secure:   IsRequestSecure(r),
-		SameSite: http.SameSiteLaxMode,
-	})
+	// Store verifier and next URL in memory, keyed by state token.
+	storeOauthState("twitter", state, verifier, next)
 
 	// Redirect to Twitter
 	url := config.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(verifier))
@@ -79,32 +66,24 @@ func (a *Handler) handleTwitterLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) {
-	// Validate state
-	cookie, err := r.Cookie("twitter_oauth_state")
-	if err != nil {
-		HTTPPanic(http.StatusBadRequest, "State cookie missing")
-	}
-
-	parts := strings.Split(cookie.Value, "|")
-	if len(parts) < 2 {
-		HTTPPanic(http.StatusBadRequest, "Invalid state cookie")
-	}
-	expectedState := parts[0]
-	verifier := parts[1]
-	next := "/"
-	if len(parts) >= 3 {
-		next = parts[2]
-	}
-
 	state := r.FormValue("state")
-	if state != expectedState {
-		HTTPPanic(http.StatusBadRequest, "Invalid state param")
+	if state == "" {
+		HTTPPanic(http.StatusBadRequest, "Missing state parameter")
 	}
+
+	// Retrieve verifier and next URL from in-memory storage
+	verifier, next, err := loadOauthState("twitter", state)
+	if err != nil {
+		HTTPPanic(http.StatusBadRequest, "Invalid or expired sign-in session. Please try again.")
+	}
+
+	tx := a.db.Begin(r.Context())
+	defer tx.Rollback()
 
 	// Exchange code for token
 	code := r.FormValue("code")
 	if code == "" {
-		HTTPPanic(http.StatusBadRequest, "Create missing")
+		HTTPPanic(http.StatusBadRequest, "Code missing")
 	}
 
 	config := a.getTwitterConfig(r)
@@ -145,22 +124,10 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 		HTTPPanic(http.StatusInternalServerError, "Failed to decode user info")
 	}
 
-	// Process user
-	tx := a.db.Begin(r.Context())
-	defer tx.Rollback()
-
 	// Handle existing session (link account) or new login
 	currentUserID := CheckUserID(tx, r)
 
 	var email string
-	// Twitter v2 users/me doesn't clearly give email without special permissions/requests.
-	// We'll map the ID and Name as requested.
-	// Since we need an email for the user model, we might construct a dummy one if creating.
-	// Or we rely on the logic in signInOauth to handle creation.
-
-	// Create a stable "email" identity.
-	// The library uses email as a primary human-readable key.
-	// We'll use id + "@twitter.com" distinct placeholder, or username.
 	if a.settings.TwitterUseEmail && userResp.Data.ConfirmedEmail != "" {
 		email = userResp.Data.ConfirmedEmail
 	} else {
@@ -170,7 +137,6 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 	var userid int64
 	var created bool
 	if currentUserID != 0 {
-		// Link account
 		existingID := tx.GetOauthUser("twitter", userResp.Data.ID)
 		if existingID != 0 && existingID != currentUserID {
 			HTTPPanic(http.StatusBadRequest, "Twitter account already linked to another user")
@@ -178,33 +144,13 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 		tx.AddOauthUser("twitter", userResp.Data.ID, currentUserID)
 		userid = currentUserID
 	} else {
-		// Delegate to signInOauth logic
 		userid, created = signInOauth(tx, "twitter", userResp.Data.ID, email)
 	}
 
-	// Clear the state cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:     "twitter_oauth_state",
-		Path:     "/",
-		Expires:  time.Unix(0, 0),
-		HttpOnly: true,
-		Secure:   IsRequestSecure(r),
-		SameSite: http.SameSiteLaxMode,
-	})
-	
-	// Finalize
 	if currentUserID != 0 {
-		// We were adding a method.
-		// Redirect to where? Maybe settings page? 
-		// Or return JSON if this was an AJAX popup?
-		// The prompt doesn't specify. Assuming standard flow, redirect to home or close popup.
-		// Existing handleUserOauthAdd returns JSON info.
-		// But this is a full page redirect flow.
-		// We'll redirect to root "/" for now.
 		tx.Commit()
 		http.Redirect(w, r, next, http.StatusFound)
 	} else {
-		// We were logging in.
 		info := a.SignInUser(tx, w, userid, created, IsRequestSecure(r))
 
 		if a.settings.OnAuthEvent != nil {
@@ -216,12 +162,6 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 		}
 
 		tx.Commit()
-		
-		// If it's a browser redirect, we should probably redirect to main app.
-		// Returning JSON might display it in browser.
-		// "Implement the OAuth2 exchange".
-		// Usually a callback redirects the user to the app dashboard.
 		http.Redirect(w, r, next, http.StatusFound)
-		// Or if we want to debug: SendJSON(w, info)
 	}
 }
