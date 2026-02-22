@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -32,19 +31,23 @@ func TestGoogleFlow(t *testing.T) {
 	if resp.StatusCode != http.StatusTemporaryRedirect {
 		t.Errorf("Google Login: Expected redirect, got %d", resp.StatusCode)
 	}
-
-	// Extract state from the redirect URL (no longer stored in cookies)
-	loc, err := resp.Location()
-	if err != nil {
-		t.Fatal("Google Login: No redirect location")
+	
+	cookies := resp.Cookies()
+	var stateCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "google_oauth_state" {
+			stateCookie = c
+			break
+		}
 	}
-	stateVal := loc.Query().Get("state")
-	if stateVal == "" {
-		t.Fatal("Google Login: No state in redirect URL")
+	if stateCookie == nil {
+		t.Fatal("Google Login: State cookie not set")
 	}
-
+	
 	// 2. Callback
-	callbackReq := httptest.NewRequest("GET", "/user/oauth/callback/google?state="+url.QueryEscape(stateVal)+"&code=fake", nil)
+	stateVal := strings.Split(stateCookie.Value, "|")[0]
+	callbackReq := httptest.NewRequest("GET", "/user/oauth/callback/google?state="+stateVal+"&code=fake", nil)
+	callbackReq.AddCookie(stateCookie)
 	callbackW := httptest.NewRecorder()
 
 	mock := &mockTransport{
@@ -79,14 +82,14 @@ func TestGoogleFlow(t *testing.T) {
 	if resp.StatusCode != http.StatusFound {
 		t.Errorf("Google Callback: Expected redirect 302, got %d. Body: %s", resp.StatusCode, callbackW.Body.String())
 	}
-	callbackLoc, _ := resp.Location()
-	if callbackLoc.Path != "/home" {
-		t.Errorf("Google: Expected redirect to /home, got %s", callbackLoc.Path)
+	loc, _ := resp.Location()
+	if loc.Path != "/home" {
+		t.Errorf("Google: Expected redirect to /home, got %s", loc.Path)
 	}
 
 	tx := db.db.MustBegin()
 	var count int
-	err = tx.Get(&count, "SELECT count(*) FROM users WHERE email='google@example.com'")
+	err := tx.Get(&count, "SELECT count(*) FROM users WHERE email='google@example.com'")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,19 +113,24 @@ func TestFacebookFlow(t *testing.T) {
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 	
-	// Extract state from the redirect URL (no longer stored in cookies)
-	fbResp := w.Result()
-	fbLoc, err := fbResp.Location()
-	if err != nil {
-		t.Fatal("Facebook Login: No redirect location")
+	// Check cookie
+	cookies := w.Result().Cookies()
+	var stateCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "facebook_oauth_state" {
+			stateCookie = c
+			break
+		}
 	}
-	stateVal := fbLoc.Query().Get("state")
-	if stateVal == "" {
-		t.Fatal("Facebook Login: No state in redirect URL")
+	if stateCookie == nil {
+		t.Fatal("Facebook Login: State cookie not set")
 	}
 
+	stateVal := strings.Split(stateCookie.Value, "|")[0]
+	
 	// 2. Callback
-	callbackReq := httptest.NewRequest("GET", "/user/oauth/callback/facebook?state="+url.QueryEscape(stateVal)+"&code=fake", nil)
+	callbackReq := httptest.NewRequest("GET", "/user/oauth/callback/facebook?state="+stateVal+"&code=fake", nil)
+	callbackReq.AddCookie(stateCookie)
 	callbackW := httptest.NewRecorder()
 
 	mock := &mockTransport{
@@ -154,14 +162,14 @@ func TestFacebookFlow(t *testing.T) {
 	ctx := context.WithValue(callbackReq.Context(), oauth2.HTTPClient, client)
 	h.ServeHTTP(callbackW, callbackReq.WithContext(ctx))
 
-	fbCallbackResp := callbackW.Result()
-	if fbCallbackResp.StatusCode != http.StatusFound {
-		t.Errorf("Facebook Callback: Expected redirect 302, got %d. Body: %s", fbCallbackResp.StatusCode, callbackW.Body.String())
+	resp := callbackW.Result()
+	if resp.StatusCode != http.StatusFound {
+		t.Errorf("Facebook Callback: Expected redirect 302, got %d. Body: %s", resp.StatusCode, callbackW.Body.String())
 	}
 	
 	tx := db.db.MustBegin()
 	var count int
-	err = tx.Get(&count, "SELECT count(*) FROM users WHERE email='fb@example.com'")
+	err := tx.Get(&count, "SELECT count(*) FROM users WHERE email='fb@example.com'")
 	if err != nil {
 		t.Fatal(err)
 	}
