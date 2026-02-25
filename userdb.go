@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"math/rand"
+	"strings"
+	"time"
 
 	"github.com/jmoiron/sqlx"
 )
@@ -42,17 +45,65 @@ func (db *UserDB) createTables() {
 	}
 }
 
-// Begin begins a transaction
+// Begin begins a transaction with retry logic for database lock errors.
+// SQLite can return "database is locked" under concurrent write load.
+// We retry with exponential backoff before panicking.
 func (db *UserDB) Begin(ctx context.Context) Tx {
-	return UserTx{db.db.MustBegin()}
+	const maxRetries = 5
+	const baseDelay = 10 * time.Millisecond
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		tx, err := db.db.BeginTxx(ctx, nil)
+		if err == nil {
+			return UserTx{tx}
+		}
+		if !isLockError(err) {
+			log.Panicf("auth: Begin() failed: %v", err)
+		}
+		log.Printf("auth: database locked on Begin(), retry %d/%d: %v", attempt+1, maxRetries, err)
+		delay := baseDelay * time.Duration(1<<uint(attempt))
+		jitter := time.Duration(rand.Int63n(int64(delay / 2)))
+		time.Sleep(delay + jitter)
+	}
+
+	// Final attempt
+	tx, err := db.db.BeginTxx(ctx, nil)
+	if err != nil {
+		log.Panicf("auth: Begin() failed after %d retries: %v", maxRetries, err)
+	}
+	return UserTx{tx}
 }
 
-// Commit commits a DB transaction
+// Commit commits a DB transaction with retry logic for database lock errors.
 func (tx UserTx) Commit() {
-	err := tx.Tx.Commit()
-	if err != nil && err != sql.ErrTxDone {
-		log.Panic(err)
+	const maxRetries = 3
+	const baseDelay = 10 * time.Millisecond
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		err := tx.Tx.Commit()
+		if err == nil || err == sql.ErrTxDone {
+			return
+		}
+		if !isLockError(err) || attempt == maxRetries {
+			log.Panicf("auth: Commit() failed: %v", err)
+		}
+		log.Printf("auth: database locked on Commit(), retry %d/%d: %v", attempt+1, maxRetries, err)
+		delay := baseDelay * time.Duration(1<<uint(attempt))
+		jitter := time.Duration(rand.Int63n(int64(delay / 2)))
+		time.Sleep(delay + jitter)
 	}
+}
+
+// isLockError checks if an error is a SQLite database lock error.
+func isLockError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "database is locked") ||
+		strings.Contains(msg, "database table is locked") ||
+		strings.Contains(msg, "SQLITE_BUSY") ||
+		strings.Contains(msg, "SQLITE_LOCKED")
 }
 
 // Rollback aborts a DB transaction
