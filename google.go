@@ -93,7 +93,7 @@ func (a *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 	config := a.getGoogleConfig(r)
 	token, err := config.Exchange(r.Context(), code, oauth2.VerifierOption(verifier))
 	if err != nil {
-		HTTPPanic(http.StatusInternalServerError, "Token exchange failed: %v", err)
+		HTTPPanic(http.StatusBadGateway, "%s", formatOAuthProviderError("Google token exchange failed", err))
 	}
 
 	// Fetch user info
@@ -106,7 +106,7 @@ func (a *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		HTTPPanic(http.StatusInternalServerError, "Google API error: %s", string(body))
+		HTTPPanic(http.StatusBadGateway, "%s", formatOAuthProviderResponseError("Google API error", body, resp.Status))
 	}
 
 	var userResp struct {
@@ -125,7 +125,7 @@ func (a *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Handle existing session (link account) or new login
 	currentUserID := CheckUserID(tx, r)
-	
+
 	var userid int64
 	var created bool
 	if currentUserID != 0 {
@@ -150,7 +150,7 @@ func (a *Handler) handleGoogleCallback(w http.ResponseWriter, r *http.Request) {
 		Secure:   IsRequestSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
-	
+
 	if currentUserID != 0 {
 		tx.Commit()
 		http.Redirect(w, r, next, http.StatusFound)

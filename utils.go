@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2"
 )
 
 // HTTPError is an error that should be communicated to the user through
@@ -50,8 +51,7 @@ func SendJSON(w http.ResponseWriter, thing interface{}) {
 // SendError writes an error as a status to the output
 // You don't need to use this but it's handy to have!
 func SendError(w http.ResponseWriter, status int, err error) {
-	w.Header().Set("Status", err.Error())
-	w.WriteHeader(status)
+	writeErrorResponse(w, status, err.Error())
 }
 
 // CORS wraps an HTTP request handler, adding appropriate cors headers.
@@ -76,8 +76,8 @@ func CORS(fn http.Handler) http.HandlerFunc {
 }
 
 // RecoverErrors will wrap an HTTP handler. When a panic occurs, it will
-// print the stack to the log. Secondly, it will return the internal server error
-// with the status header equal to the error string.
+// print the stack to the log. Secondly, it will return the error text in both
+// the response header and response body so callers can read it reliably.
 func RecoverErrors(fn http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -93,13 +93,102 @@ func RecoverErrors(fn http.Handler) http.HandlerFunc {
 					log.Printf("%v", thing)
 					log.Println(string(debug.Stack()))
 				}
-				w.Header().Set("Status", status)
-				w.WriteHeader(code)
+				writeErrorResponse(w, code, status)
 			}
 		}()
 
 		fn.ServeHTTP(w, r)
 	}
+}
+
+func writeErrorResponse(w http.ResponseWriter, statusCode int, status string) {
+	if status == "" {
+		status = http.StatusText(statusCode)
+	}
+
+	w.Header().Set("Status", sanitizeHeaderValue(status))
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	}
+	w.WriteHeader(statusCode)
+	fmt.Fprint(w, status)
+}
+
+func sanitizeHeaderValue(value string) string {
+	value = strings.NewReplacer("\r", " ", "\n", " ").Replace(value)
+	if len(value) > 1024 {
+		return value[:1024]
+	}
+	return value
+}
+
+func formatOAuthProviderError(prefix string, err error) string {
+	if retrieveErr, ok := err.(*oauth2.RetrieveError); ok {
+		return formatOAuthProviderResponseError(prefix, retrieveErr.Body, err.Error())
+	}
+
+	return fmt.Sprintf("%s: %v", prefix, err)
+}
+
+func formatOAuthProviderResponseError(prefix string, body []byte, fallback string) string {
+	bodyText := strings.TrimSpace(string(body))
+	if bodyText == "" {
+		if fallback == "" {
+			return prefix
+		}
+		return fmt.Sprintf("%s: %s", prefix, fallback)
+	}
+
+	var payload struct {
+		Detail           string `json:"detail"`
+		ErrorDescription string `json:"error_description"`
+		Error            string `json:"error"`
+		Message          string `json:"message"`
+		Title            string `json:"title"`
+		Reason           string `json:"reason"`
+		Errors           []struct {
+			Message string `json:"message"`
+			Detail  string `json:"detail"`
+		} `json:"errors"`
+	}
+
+	if err := json.Unmarshal(body, &payload); err == nil {
+		detail := firstNonEmpty(
+			payload.Detail,
+			payload.ErrorDescription,
+			payload.Message,
+			payload.Error,
+		)
+		if detail == "" {
+			for _, item := range payload.Errors {
+				detail = firstNonEmpty(item.Detail, item.Message)
+				if detail != "" {
+					break
+				}
+			}
+		}
+
+		if detail != "" {
+			if payload.Title != "" && !strings.Contains(detail, payload.Title) {
+				detail = payload.Title + ": " + detail
+			}
+			if payload.Reason != "" && !strings.Contains(detail, payload.Reason) {
+				detail += " (reason: " + payload.Reason + ")"
+			}
+			return fmt.Sprintf("%s: %s", prefix, detail)
+		}
+	}
+
+	return fmt.Sprintf("%s: %s", prefix, bodyText)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 const charset = "abcdefghijklmnopqrstuvwxyz" +

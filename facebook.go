@@ -41,7 +41,7 @@ func (a *Handler) handleFacebookLogin(w http.ResponseWriter, r *http.Request) {
 	if next == "" {
 		next = "/"
 	}
-	
+
 	// Store state in cookie
 	cookieValue := fmt.Sprintf("%s|%s", state, next)
 	http.SetCookie(w, &http.Cookie{
@@ -91,7 +91,7 @@ func (a *Handler) handleFacebookCallback(w http.ResponseWriter, r *http.Request)
 	config := a.getFacebookConfig(r)
 	token, err := config.Exchange(r.Context(), code)
 	if err != nil {
-		HTTPPanic(http.StatusInternalServerError, "Token exchange failed: %v", err)
+		HTTPPanic(http.StatusBadGateway, "%s", formatOAuthProviderError("Facebook token exchange failed", err))
 	}
 
 	// Fetch user info
@@ -106,7 +106,7 @@ func (a *Handler) handleFacebookCallback(w http.ResponseWriter, r *http.Request)
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		HTTPPanic(http.StatusInternalServerError, "Facebook API error: %s", string(body))
+		HTTPPanic(http.StatusBadGateway, "%s", formatOAuthProviderResponseError("Facebook API error", body, resp.Status))
 	}
 
 	var userResp struct {
@@ -125,7 +125,7 @@ func (a *Handler) handleFacebookCallback(w http.ResponseWriter, r *http.Request)
 
 	// Handle existing session (link account) or new login
 	currentUserID := CheckUserID(tx, r)
-	
+
 	// Delegate to signInOauth logic
 	// Note: Facebook might not return email if user declined or phone number account.
 	// signInOauth needs an email to potentially match to existing user or create one.
@@ -135,7 +135,7 @@ func (a *Handler) handleFacebookCallback(w http.ResponseWriter, r *http.Request)
 	// If email is empty string "", and unique constraint on email... might fail if multiple empty emails?
 	// Postgres Schema has UNIQUE(email). SQLite Schema has email TEXT UNIQUE NOT NULL.
 	// So we need an email.
-	
+
 	email := userResp.Email
 	if email == "" {
 		// Fallback email generator
@@ -166,7 +166,7 @@ func (a *Handler) handleFacebookCallback(w http.ResponseWriter, r *http.Request)
 		Secure:   IsRequestSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
-	
+
 	if currentUserID != 0 {
 		tx.Commit()
 		http.Redirect(w, r, next, http.StatusFound)

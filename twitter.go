@@ -104,13 +104,13 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 	// Exchange code for token
 	code := r.FormValue("code")
 	if code == "" {
-		HTTPPanic(http.StatusBadRequest, "Create missing")
+		HTTPPanic(http.StatusBadRequest, "Code missing")
 	}
 
 	config := a.getTwitterConfig(r)
 	token, err := config.Exchange(r.Context(), code, oauth2.VerifierOption(verifier))
 	if err != nil {
-		HTTPPanic(http.StatusInternalServerError, "Token exchange failed: %v", err)
+		HTTPPanic(http.StatusBadGateway, "%s", formatOAuthProviderError("Twitter token exchange failed", err))
 	}
 
 	// Fetch user info
@@ -123,13 +123,17 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 
 	resp, err := client.Get(fetchURL)
 	if err != nil {
-		HTTPPanic(http.StatusInternalServerError, "Failed to get user info: %v", err)
+		HTTPPanic(http.StatusBadGateway, "Failed to get user info: %v", err)
 	}
 	defer resp.Body.Close()
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		HTTPPanic(http.StatusInternalServerError, "Failed to read user info response: %v", err)
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		HTTPPanic(http.StatusInternalServerError, "Twitter API error: %s", string(body))
+		HTTPPanic(http.StatusBadGateway, "%s", formatOAuthProviderResponseError("Twitter API error", body, resp.Status))
 	}
 
 	var userResp struct {
@@ -141,7 +145,7 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 		} `json:"data"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&userResp); err != nil {
+	if err := json.Unmarshal(body, &userResp); err != nil {
 		HTTPPanic(http.StatusInternalServerError, "Failed to decode user info")
 	}
 
@@ -191,11 +195,11 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 		Secure:   IsRequestSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
-	
+
 	// Finalize
 	if currentUserID != 0 {
 		// We were adding a method.
-		// Redirect to where? Maybe settings page? 
+		// Redirect to where? Maybe settings page?
 		// Or return JSON if this was an AJAX popup?
 		// The prompt doesn't specify. Assuming standard flow, redirect to home or close popup.
 		// Existing handleUserOauthAdd returns JSON info.
@@ -216,7 +220,7 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 		}
 
 		tx.Commit()
-		
+
 		// If it's a browser redirect, we should probably redirect to main app.
 		// Returning JSON might display it in browser.
 		// "Implement the OAuth2 exchange".
