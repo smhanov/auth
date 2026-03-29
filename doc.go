@@ -72,6 +72,11 @@ Instead of creating 100 accounts on your site, the company connects their Identi
 
 # OAuth Configuration
 
+There are two different redirect concepts in the OAuth flow:
+
+  - `*RedirectURL` settings such as `GoogleRedirectURL` define the callback URL that the OAuth provider redirects back to.
+  - The final browser destination after successful authentication is controlled separately with the `next` query parameter on `/user/oauth/login/{provider}`.
+
 To enable OAuth login with social providers, configure the following settings in the Settings struct:
 
 1. Twitter
@@ -137,12 +142,19 @@ To enable OAuth, configure the Client ID and Secret in your Settings. In most ca
 
 If you are behind a reverse proxy, ensure `X-Forwarded-Proto` and `X-Forwarded-Host` are set so scheme and host are detected correctly.
 
+Important: `GoogleRedirectURL`, `FacebookRedirectURL`, and `TwitterRedirectURL` are the provider callback URLs, not the page the user sees after login completes.
+
 Start the login flow by sending the user to the login URL.
 
 Redirect Parameters:
 You can control where the user is sent after a successful login using the `next` query parameter.
 
 	<a href="/user/oauth/login/google?next=/dashboard">Login with Google</a>
+
+You can also use a different destination per request, for example:
+
+	/user/oauth/login/google?next=/settings
+	/user/oauth/login/twitter?next=/billing
 
 If `next` is omitted, the user is redirected to `/`.
 
