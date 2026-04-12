@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log"
-	"math/rand"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -62,7 +62,7 @@ func (db *UserDB) Begin(ctx context.Context) Tx {
 		}
 		log.Printf("auth: database locked on Begin(), retry %d/%d: %v", attempt+1, maxRetries, err)
 		delay := baseDelay * time.Duration(1<<uint(attempt))
-		jitter := time.Duration(rand.Int63n(int64(delay / 2)))
+		jitter := time.Duration(rand.Int64N(int64(delay / 2)))
 		time.Sleep(delay + jitter)
 	}
 
@@ -89,7 +89,7 @@ func (tx UserTx) Commit() {
 		}
 		log.Printf("auth: database locked on Commit(), retry %d/%d: %v", attempt+1, maxRetries, err)
 		delay := baseDelay * time.Duration(1<<uint(attempt))
-		jitter := time.Duration(rand.Int63n(int64(delay / 2)))
+		jitter := time.Duration(rand.Int64N(int64(delay / 2)))
 		time.Sleep(delay + jitter)
 	}
 }
