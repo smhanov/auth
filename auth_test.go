@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -70,6 +71,7 @@ type testRequest struct {
 }
 
 var passwordToken string
+var testClientCounter uint32
 
 func TestStuff(t *testing.T) {
 
@@ -876,13 +878,73 @@ func TestUserUpdateRequiresCurrentPassword(t *testing.T) {
 	)
 }
 
+func TestPasswordResetTokenExpiresAfterOneHour(t *testing.T) {
+	defer auth.AdvanceTime(-61 * time.Minute)
+
+	var token string
+	handler := auth.New(auth.NewUserDB(sqlx.MustConnect("sqlite3", ":memory:")),
+		auth.Settings{
+			SendEmailFn: func(_ string, resetToken string) {
+				token = resetToken
+			},
+		})
+	client := newTestClient(handler)
+
+	client.do(t,
+		testRequest{
+			name: "Create user for reset expiry test",
+			path: "/user/create",
+			code: 200,
+			params: map[string]string{
+				"email":    "expire-reset@example.com",
+				"password": "password",
+			},
+			json: map[string]interface{}{
+				"email": "expire-reset@example.com",
+			},
+		},
+		testRequest{
+			name: "Issue password reset token",
+			path: "/user/forgotpassword",
+			code: 200,
+			params: map[string]string{
+				"email": "expire-reset@example.com",
+			},
+		},
+	)
+
+	if token == "" {
+		t.Fatalf("expected password reset token to be issued")
+	}
+
+	auth.AdvanceTime(61 * time.Minute)
+
+	client.do(t,
+		testRequest{
+			name: "Expired password reset token is rejected",
+			path: "/user/resetpassword",
+			code: 401,
+			params: map[string]string{
+				"token":    token,
+				"password": "new-password",
+			},
+			status: "expired token",
+		},
+	)
+}
+
 type testClient struct {
-	session string
-	server  http.Handler
+	remoteAddr string
+	session    string
+	server     http.Handler
 }
 
 func newTestClient(server http.Handler) *testClient {
-	return &testClient{server: server}
+	n := atomic.AddUint32(&testClientCounter, 1)
+	return &testClient{
+		remoteAddr: fmt.Sprintf("10.%d.%d.%d:1234", byte(n>>16), byte(n>>8), byte(n)),
+		server:     server,
+	}
 }
 
 func (tc *testClient) do(t *testing.T, trs ...testRequest) {
@@ -934,7 +996,7 @@ func (tc *testClient) makeRequest(t *testing.T, path string, params map[string]s
 
 	t.Logf("    %s", path+"?"+data.Encode())
 	req, _ := http.NewRequest("GET", path+"?"+data.Encode(), nil)
-	req.RemoteAddr = "10.0.0.1"
+	req.RemoteAddr = tc.remoteAddr
 	rec := httptest.NewRecorder()
 
 	if tc.session != "" {

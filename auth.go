@@ -142,6 +142,9 @@ const attempts = 25
 // Attempts allowed in this time period
 const attemptsPeriod = time.Hour
 
+// Default lifetime for password reset tokens.
+const passwordResetTokenLifetime = time.Hour
+
 func (a *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := strings.ReplaceAll(r.URL.Path, "/users/", "/user/")
 
@@ -513,7 +516,7 @@ func (a *Handler) handleUserForgotPassword(_ http.ResponseWriter, r *http.Reques
 	}
 
 	token := MakeCookie()
-	tx.CreatePasswordResetToken(userid, token, now().Unix()+5*24*60*60)
+	tx.CreatePasswordResetToken(userid, token, now().Add(passwordResetTokenLifetime).Unix())
 
 	tx.Commit()
 

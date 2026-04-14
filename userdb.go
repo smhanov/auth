@@ -231,7 +231,7 @@ func (tx UserTx) performMaintenance() {
 	before := now - 30*24*60*60
 
 	tx.Tx.MustExec("DELETE FROM Sessions WHERE lastUsed < $1", before)
-	tx.Tx.MustExec("DELETE FROM PasswordResetTokens WHERE expiry < $1", now-5*24*60*60)
+	tx.Tx.MustExec("DELETE FROM PasswordResetTokens WHERE expiry < $1", now)
 }
 
 // SignOut deletes session information corresponding to the given cookie
@@ -370,7 +370,7 @@ func (tx UserTx) GetUserByPasswordResetToken(token string) int64 {
 	var userid int64
 
 	err := tx.Tx.Get(&userid, `SELECT userid FROM PasswordResetTokens WHERE token=$1 AND expiry >= $2`, token,
-		now().Unix()-5*24*60*60)
+		now().Unix())
 	if err != nil && err != sql.ErrNoRows {
 		panic(err)
 	}
