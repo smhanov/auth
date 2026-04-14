@@ -18,7 +18,7 @@ func sendEmail(settings Settings, addr string, token string) {
 		Headers: textproto.MIMEHeader{},
 	}
 
-	log.Printf("Sending email using %s:%s", settings.SMTPUser, settings.SMTPPassword)
+	log.Printf("Sending email...")
 	err := e.Send(settings.SMTPServer, smtp.PlainAuth("", settings.SMTPUser, settings.SMTPPassword,
 		strings.Split(settings.SMTPServer, ":")[0]))
 	if err != nil {
