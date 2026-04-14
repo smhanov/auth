@@ -418,12 +418,18 @@ func (a *Handler) handleUserUpdate(w http.ResponseWriter, req *http.Request) {
 	tx := a.db.Begin(req.Context())
 	defer tx.Rollback()
 
-	userid := GetUserID(tx, req)
+	userid, currentEmail := GetUserIDAndEmail(tx, req)
 	email := strings.ToLower(req.FormValue("email"))
 	password := req.FormValue("password")
 
 	if email == "" && password == "" || email != "" && !strings.Contains(email, "@") {
 		HTTPPanic(400, "not an email address")
+	}
+
+	currentPassword := req.FormValue("current_password")
+	_, realPassword := tx.GetPassword(currentEmail)
+	if err := a.settings.CompareHashedPasswordFn(realPassword, currentPassword); err != nil {
+		HTTPPanic(http.StatusUnauthorized, "wrong password")
 	}
 
 	if email != "" {

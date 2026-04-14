@@ -264,6 +264,7 @@ Update Email Only:
 	POST /user/update
 	Form Data:
 		email: newemail@example.com
+		current_password: current-secret-password
 
 	Requires: User must be signed in (have valid session cookie)
 
@@ -272,6 +273,7 @@ Update Password Only:
 	POST /user/update
 	Form Data:
 		password: new-secret-password
+		current_password: current-secret-password
 
 	Requires: User must be signed in (have valid session cookie)
 
@@ -281,10 +283,12 @@ Update Both:
 	Form Data:
 		email: newemail@example.com
 		password: new-secret-password
+		current_password: current-secret-password
 
 	Requires: User must be signed in (have valid session cookie)
 
 If neither email nor password is provided, the request returns a 400 error.
+If `current_password` is missing or incorrect, the request returns a 401 error.
 Email addresses are automatically converted to lowercase.
 
 4. Adding OAuth Methods to Existing Accounts

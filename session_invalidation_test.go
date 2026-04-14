@@ -33,7 +33,8 @@ func TestPasswordChangeInvalidatesExistingSessions(t *testing.T) {
 			name: "change password",
 			path: "/user/update",
 			params: map[string]string{
-				"password": "new-password",
+				"password":         "new-password",
+				"current_password": "old-password",
 			},
 			code: 200,
 		},

@@ -299,14 +299,18 @@ func TestStuff(t *testing.T) {
 				"settings": "",
 			},
 		},
+	}
+
+	postUpdateRequests := []testRequest{
 
 		{
 			name: "Update email / password should succeed",
 			path: "/user/update",
 			code: 200,
 			params: map[string]string{
-				"email":    "example3-updated@example.com",
-				"password": "password",
+				"email":            "example3-updated@example.com",
+				"password":         "password",
+				"current_password": "currentpassword",
 			},
 		},
 
@@ -325,7 +329,8 @@ func TestStuff(t *testing.T) {
 			path: "/user/update",
 			code: 200,
 			params: map[string]string{
-				"password": "password2",
+				"password":         "password2",
+				"current_password": "password",
 			},
 		},
 
@@ -574,6 +579,51 @@ func TestStuff(t *testing.T) {
 		})
 	client := newTestClient(handler)
 	client.do(t, trs...)
+	client.do(t,
+		testRequest{
+			name: "Update email / password without current password should fail",
+			path: "/user/update",
+			code: 401,
+			params: map[string]string{
+				"email":    "example3-updated@example.com",
+				"password": "password",
+			},
+			status: "wrong password",
+		},
+		testRequest{
+			name: "After rejected update, current user data remains unchanged",
+			path: "/user/get",
+			code: 200,
+			json: map[string]interface{}{
+				"email":  "example3@example.com",
+				"userid": 3.0,
+			},
+		},
+		testRequest{
+			name: "Forgot password for oauth-created user works",
+			path: "/user/forgotpassword",
+			code: 200,
+			params: map[string]string{
+				"email": "example3@example.com",
+			},
+		},
+	)
+
+	client.do(t, testRequest{
+		name: "password reset for oauth-created user succeeds",
+		path: "/user/resetpassword",
+		code: 200,
+		params: map[string]string{
+			"token":    passwordToken,
+			"password": "currentpassword",
+		},
+		json: map[string]interface{}{
+			"email":  "example3@example.com",
+			"userid": 3.0,
+		},
+	})
+
+	client.do(t, postUpdateRequests...)
 
 	client.do(t, []testRequest{{
 		name: "password reset with no password has error",
@@ -737,6 +787,93 @@ func TestStuff(t *testing.T) {
 		t.Errorf("FAIL: Email guessing attempts are not rate-limited.")
 	}
 
+}
+
+func TestUserUpdateRequiresCurrentPassword(t *testing.T) {
+	handler := auth.New(auth.NewUserDB(sqlx.MustConnect("sqlite3", ":memory:")),
+		auth.Settings{
+			SendEmailFn: func(string, string) {},
+		})
+	client := newTestClient(handler)
+
+	client.do(t,
+		testRequest{
+			name: "Create password user for update test",
+			path: "/user/create",
+			code: 200,
+			params: map[string]string{
+				"email":    "secure@example.com",
+				"password": "correct-password",
+			},
+			json: map[string]interface{}{
+				"email": "secure@example.com",
+			},
+		},
+		testRequest{
+			name: "Email-only update without current password is rejected",
+			path: "/user/update",
+			code: 401,
+			params: map[string]string{
+				"email": "changed@example.com",
+			},
+			status: "wrong password",
+		},
+		testRequest{
+			name: "Password-only update with wrong current password is rejected",
+			path: "/user/update",
+			code: 401,
+			params: map[string]string{
+				"password":         "new-password",
+				"current_password": "wrong-password",
+			},
+			status: "wrong password",
+		},
+		testRequest{
+			name: "Rejected updates leave account unchanged",
+			path: "/user/get",
+			code: 200,
+			json: map[string]interface{}{
+				"email": "secure@example.com",
+			},
+		},
+		testRequest{
+			name: "Sign out before re-authentication checks",
+			path: "/user/signout",
+			code: 200,
+		},
+		testRequest{
+			name: "Original password still works",
+			path: "/user/auth",
+			code: 200,
+			params: map[string]string{
+				"email":    "secure@example.com",
+				"password": "correct-password",
+			},
+			json: map[string]interface{}{
+				"email": "secure@example.com",
+			},
+		},
+		testRequest{
+			name: "New email was not applied",
+			path: "/user/auth",
+			code: 401,
+			params: map[string]string{
+				"email":    "changed@example.com",
+				"password": "correct-password",
+			},
+			status: "no user with that email exists",
+		},
+		testRequest{
+			name: "New password was not applied",
+			path: "/user/auth",
+			code: 401,
+			params: map[string]string{
+				"email":    "secure@example.com",
+				"password": "new-password",
+			},
+			status: "wrong password",
+		},
+	)
 }
 
 type testClient struct {
