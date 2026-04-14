@@ -240,6 +240,11 @@ func (tx UserTx) SignOut(userid int64, cookie string) {
 		cookie)
 }
 
+// DeleteSessions invalidates all sessions for the given user.
+func (tx UserTx) DeleteSessions(userid int64) {
+	tx.Tx.MustExec("DELETE FROM Sessions WHERE userid=$1", userid)
+}
+
 // GetPassword searches for the salted hashed password for the given email
 // address. The email is assumed to be already in all lower case.
 // It also returns the userid. If not found, userid will be 0

@@ -113,6 +113,7 @@ type Tx interface {
 	RemoveOauthMethod(userid int64, method string)
 	SignIn(userid int64, cookie string)
 	SignOut(userid int64, cookie string)
+	DeleteSessions(userid int64)
 	UpdateEmail(userid int64, email string)
 	UpdatePassword(userid int64, password string)
 
@@ -431,6 +432,8 @@ func (a *Handler) handleUserUpdate(w http.ResponseWriter, req *http.Request) {
 
 	if password != "" {
 		tx.UpdatePassword(userid, a.settings.HashPasswordFn(password))
+		tx.DeleteSessions(userid)
+		a.SignInUser(tx, w, userid, false, IsRequestSecure(req))
 	}
 
 	tx.Commit()
@@ -527,6 +530,7 @@ func (a *Handler) handleUserResetPassword(w http.ResponseWriter, r *http.Request
 	}
 
 	tx.UpdatePassword(userid, a.settings.HashPasswordFn(password))
+	tx.DeleteSessions(userid)
 	info := a.SignInUser(tx, w, userid, false, IsRequestSecure(r))
 
 	if a.settings.OnAuthEvent != nil {
