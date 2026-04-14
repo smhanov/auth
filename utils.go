@@ -215,7 +215,7 @@ func MakeCookie() string {
 // HashPassword computes the salted, hashed password using bcypt.
 // Panics on error.
 func HashPassword(password string) string {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.MinCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		panic(err)
 	}
