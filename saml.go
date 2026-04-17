@@ -147,10 +147,7 @@ func (a *Handler) newSamlSP(req *http.Request, metadataXML string) *samlsp.Middl
 func (a *Handler) handleSaml(w http.ResponseWriter, req *http.Request, metadataXML string) {
 	sp := a.newSamlSP(req, metadataXML)
 
-	returnTo := req.Header.Get("Referer")
-	if returnTo == "" {
-		returnTo = "/"
-	}
+	returnTo := sanitizeRefererReturnPath(req)
 	// store the referrer as a cookie in the return-to url
 	http.SetCookie(w, &http.Cookie{
 		Name:     "saml_return_to",
@@ -270,7 +267,7 @@ func (a *Handler) handleSamlACS(w http.ResponseWriter, r *http.Request) {
 			HttpOnly: true,
 			Secure:   IsRequestSecure(r),
 		})
-		returnTo = cookie.Value
+		returnTo = sanitizeRedirectTarget(cookie.Value)
 	}
 	a.SignInUser(tx, w, userid, created, IsRequestSecure(r))
 	http.Redirect(w, r, returnTo, http.StatusSeeOther) // code 303 changes redirect to a GET request.

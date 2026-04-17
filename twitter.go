@@ -54,10 +54,7 @@ func (a *Handler) handleTwitterLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	verifier := oauth2.GenerateVerifier()
-	next := r.FormValue("next")
-	if next == "" {
-		next = "/"
-	}
+	next := sanitizeRedirectTarget(r.FormValue("next"))
 
 	// Store state and verifier in a short-lived cookie
 	// In a real app, you might want to sign this or store in a server-side session
@@ -93,7 +90,7 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 	verifier := parts[1]
 	next := "/"
 	if len(parts) >= 3 {
-		next = parts[2]
+		next = sanitizeRedirectTarget(parts[2])
 	}
 
 	state := r.FormValue("state")

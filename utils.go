@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"net/url"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -332,4 +333,53 @@ func resolveRedirectURL(configuredURL string, r *http.Request, defaultPath strin
 		return fmt.Sprintf("%s://%s%s", scheme, GetHost(r), configuredURL)
 	}
 	return configuredURL
+}
+
+func sanitizeRedirectTarget(target string) string {
+	target = strings.TrimSpace(target)
+	if target == "" || !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") {
+		return "/"
+	}
+	return target
+}
+
+func sanitizeRefererReturnPath(r *http.Request) string {
+	referer := strings.TrimSpace(r.Header.Get("Referer"))
+	if referer == "" {
+		return "/"
+	}
+
+	u, err := url.Parse(referer)
+	if err != nil {
+		return "/"
+	}
+
+	if u.IsAbs() {
+		if !sameRequestOrigin(r, u) {
+			return "/"
+		}
+	} else if u.Host != "" || u.Scheme != "" {
+		return "/"
+	}
+
+	target := u.Path
+	if target == "" {
+		target = "/"
+	}
+	if u.RawQuery != "" {
+		target += "?" + u.RawQuery
+	}
+
+	return sanitizeRedirectTarget(target)
+}
+
+func sameRequestOrigin(r *http.Request, u *url.URL) bool {
+	return strings.EqualFold(u.Scheme, requestScheme(r)) && strings.EqualFold(u.Host, GetHost(r))
+}
+
+func requestScheme(r *http.Request) string {
+	if IsRequestSecure(r) {
+		return "https"
+	}
+	return "http"
 }

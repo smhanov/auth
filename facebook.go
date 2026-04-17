@@ -37,10 +37,7 @@ func (a *Handler) handleFacebookLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Facebook flow (standard server-side flow)
 	// We'll use state for CSRF protection.
-	next := r.FormValue("next")
-	if next == "" {
-		next = "/"
-	}
+	next := sanitizeRedirectTarget(r.FormValue("next"))
 
 	// Store state in cookie
 	cookieValue := fmt.Sprintf("%s|%s", state, next)
@@ -72,7 +69,7 @@ func (a *Handler) handleFacebookCallback(w http.ResponseWriter, r *http.Request)
 
 	if len(parts) == 2 {
 		expectedState = parts[0]
-		next = parts[1]
+		next = sanitizeRedirectTarget(parts[1])
 	} else {
 		expectedState = cookie.Value
 	}
