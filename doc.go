@@ -3,7 +3,8 @@ Package auth provides a complete, self-hosted user authentication system for Go 
 
 It includes:
   - Email/Password authentication
-  - OAuth2 login (Google, Facebook, Twitter)
+  - OAuth2 login (Google, Facebook, Twitter) with built-in providers
+  - Pluggable OAuth provider API for adding custom providers (e.g., GitHub, GitLab)
   - SAML 2.0 support for Enterprise SSO
   - User session management via HTTP cookies
   - Password reset flows via Email
@@ -74,6 +75,9 @@ Instead of creating 100 accounts on your site, the company connects their Identi
 
 # OAuth Configuration
 
+The auth package supports OAuth2 login through both built-in providers and custom providers
+via the OAuthProvider interface.
+
 There are two different redirect concepts in the OAuth flow:
 
   - `*RedirectURL` settings such as `GoogleRedirectURL` define the callback URL that the OAuth provider redirects back to.
@@ -101,6 +105,92 @@ To enable OAuth login with social providers, configure the following settings in
   - FacebookRedirectURL: Optional override for the callback URL. In most cases, leave this blank to use the default `{scheme}://{server}/user/oauth/callback/facebook`, derived from the HTTP request.
 
 When using this default callback URL behavior behind a proxy, ensure both `X-Forwarded-Proto` and `X-Forwarded-Host` are set correctly.
+
+# Custom OAuth Providers
+
+You can add support for any OAuth2 provider by implementing the OAuthProvider interface.
+The interface requires four methods:
+
+  - Name() string: A unique identifier for the provider, used in URL routing and the database.
+  - OAuthConfig() *oauth2.Config: Returns the OAuth2 configuration (client ID, secret, scopes, endpoint).
+  - UsePKCE() bool: Whether to use PKCE (Proof Key for Code Exchange) for added security.
+  - FetchIdentity(ctx, client) (id, email, error): Fetches the user's ID and email from the provider.
+
+The framework handles the full server-side OAuth flow automatically: state generation, CSRF
+protection via cookies, authorization code exchange, and user sign-in/creation.
+
+Example: Adding a GitHub OAuth provider:
+
+	type GitHubProvider struct {
+		ClientID     string
+		ClientSecret string
+		RedirectURL  string   // optional; leave empty for auto-derived URL
+	}
+
+	func (p *GitHubProvider) Name() string  { return "github" }
+	func (p *GitHubProvider) UsePKCE() bool { return false }
+
+	func (p *GitHubProvider) OAuthConfig() *oauth2.Config {
+		return &oauth2.Config{
+			ClientID:     p.ClientID,
+			ClientSecret: p.ClientSecret,
+			RedirectURL:  p.RedirectURL,
+			Scopes:       []string{"user:email"},
+			Endpoint: oauth2.Endpoint{
+				AuthURL:  "https://github.com/login/oauth/authorize",
+				TokenURL: "https://github.com/login/oauth/access_token",
+			},
+		}
+	}
+
+	func (p *GitHubProvider) FetchIdentity(ctx context.Context, client *http.Client) (string, string, error) {
+		resp, err := client.Get("https://api.github.com/user")
+		if err != nil {
+			return "", "", err
+		}
+		defer resp.Body.Close()
+
+		var user struct {
+			ID    int    `json:"id"`
+			Login string `json:"login"`
+			Email string `json:"email"`
+		}
+		json.NewDecoder(resp.Body).Decode(&user)
+
+		email := user.Email
+		if email == "" {
+			email = fmt.Sprintf("%s@users.noreply.github.com", user.Login)
+		}
+		return fmt.Sprintf("%d", user.ID), email, nil
+	}
+
+Register the provider in Settings:
+
+	settings := auth.DefaultSettings
+	settings.OAuthProviders = []auth.OAuthProvider{
+		&GitHubProvider{
+			ClientID:     "your-client-id",
+			ClientSecret: "your-client-secret",
+		},
+	}
+	authHandler := auth.New(db, settings)
+
+The login and callback endpoints are automatically registered:
+
+	/user/oauth/login/github     - Redirects to GitHub authorization page
+	/user/oauth/callback/github  - Handles the OAuth callback
+
+Use them in your frontend:
+
+	<a href="/user/oauth/login/github?next=/dashboard">Sign in with GitHub</a>
+
+The RedirectURL in OAuthConfig can be:
+  - Empty: automatically derived as {scheme}://{host}/user/oauth/callback/{name}
+  - A relative path (e.g., "/callback"): resolved against the request
+  - An absolute URL: used as-is
+
+The `next` query parameter on the login URL controls where the user is redirected after
+successful authentication (defaults to "/").
 
 # Tutorials & Usage
 

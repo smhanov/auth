@@ -58,6 +58,13 @@ type Settings struct {
 	FacebookClientID     string
 	FacebookClientSecret string
 	FacebookRedirectURL  string
+
+	// OAuthProviders allows registering custom OAuth providers.
+	// Built-in providers (Google, Facebook, Twitter) are automatically
+	// registered when their Client ID is configured in Settings.
+	// Use this field to add additional providers (e.g., GitHub, GitLab).
+	// See the OAuthProvider interface for implementation details.
+	OAuthProviders []OAuthProvider
 }
 
 // DefaultSettings provide some reasonable defaults
@@ -134,6 +141,7 @@ type Handler struct {
 	privateKey  *rsa.PrivateKey
 	certificate *x509.Certificate
 	getInfoFn   func(tx Tx, userid int64, newAccount bool) UserInfo
+	providers   map[string]OAuthProvider
 }
 
 // Number of password cracking attempts allowed
@@ -171,19 +179,21 @@ func (a *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		a.handleSamlMetadata(w, r)
 	case "/user/saml/acs":
 		a.handleSamlACS(w, r)
-	case "/user/oauth/login/twitter":
-		a.handleTwitterLogin(w, r)
-	case "/user/oauth/callback/twitter":
-		a.handleTwitterCallback(w, r)
-	case "/user/oauth/login/google":
-		a.handleGoogleLogin(w, r)
-	case "/user/oauth/callback/google":
-		a.handleGoogleCallback(w, r)
-	case "/user/oauth/login/facebook":
-		a.handleFacebookLogin(w, r)
-	case "/user/oauth/callback/facebook":
-		a.handleFacebookCallback(w, r)
 	default:
+		if strings.HasPrefix(p, "/user/oauth/login/") {
+			name := strings.TrimPrefix(p, "/user/oauth/login/")
+			if provider, ok := a.providers[name]; ok {
+				a.handleOAuthLogin(provider, w, r)
+				return
+			}
+		}
+		if strings.HasPrefix(p, "/user/oauth/callback/") {
+			name := strings.TrimPrefix(p, "/user/oauth/callback/")
+			if provider, ok := a.providers[name]; ok {
+				a.handleOAuthCallback(provider, w, r)
+				return
+			}
+		}
 		w.WriteHeader(http.StatusNotFound)
 	}
 }
@@ -584,6 +594,38 @@ func New(db DB, settings Settings) http.Handler {
 	}
 
 	handler := &Handler{settings: settings, db: db}
+
+	// Register OAuth providers
+	handler.providers = make(map[string]OAuthProvider)
+
+	// Register built-in providers from settings
+	if settings.FacebookClientID != "" {
+		handler.providers["facebook"] = &FacebookProvider{
+			ClientID:     settings.FacebookClientID,
+			ClientSecret: settings.FacebookClientSecret,
+			RedirectURL:  settings.FacebookRedirectURL,
+		}
+	}
+	if settings.GoogleClientID != "" {
+		handler.providers["google"] = &GoogleProvider{
+			ClientID:     settings.GoogleClientID,
+			ClientSecret: settings.GoogleClientSecret,
+			RedirectURL:  settings.GoogleRedirectURL,
+		}
+	}
+	if settings.TwitterClientID != "" {
+		handler.providers["twitter"] = &TwitterProvider{
+			ClientID:     settings.TwitterClientID,
+			ClientSecret: settings.TwitterClientSecret,
+			RedirectURL:  settings.TwitterRedirectURL,
+			UseEmail:     settings.TwitterUseEmail,
+		}
+	}
+
+	// Register custom providers
+	for _, p := range settings.OAuthProviders {
+		handler.providers[p.Name()] = p
+	}
 
 	// Set up the default info getter
 	if customDB, ok := db.(interface {

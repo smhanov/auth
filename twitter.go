@@ -1,40 +1,16 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
-	"time"
 
 	"golang.org/x/oauth2"
 )
-
-const (
-	twitterAuthorizeURL = "https://twitter.com/i/oauth2/authorize"
-	twitterTokenURL     = "https://api.twitter.com/2/oauth2/token"
-	twitterUserURL      = "https://api.twitter.com/2/users/me"
-)
-
-func (a *Handler) getTwitterConfig(r *http.Request) *oauth2.Config {
-	scopes := []string{"users.read", "tweet.read", "offline.access"}
-	if a.settings.TwitterUseEmail {
-		scopes = append(scopes, "users.email")
-	}
-	return &oauth2.Config{
-		ClientID:     a.settings.TwitterClientID,
-		ClientSecret: a.settings.TwitterClientSecret,
-		RedirectURL:  resolveRedirectURL(a.settings.TwitterRedirectURL, r, "/user/oauth/callback/twitter"),
-		Scopes:       scopes,
-		Endpoint: oauth2.Endpoint{
-			AuthURL:  twitterAuthorizeURL,
-			TokenURL: twitterTokenURL,
-		},
-	}
-}
 
 func generateRandomString() (string, error) {
 	b := make([]byte, 32)
@@ -44,93 +20,54 @@ func generateRandomString() (string, error) {
 	return base64.URLEncoding.EncodeToString(b), nil
 }
 
-func (a *Handler) handleTwitterLogin(w http.ResponseWriter, r *http.Request) {
-	config := a.getTwitterConfig(r)
-
-	// Generate state and PKCE verifier
-	state, err := generateRandomString()
-	if err != nil {
-		HTTPPanic(http.StatusInternalServerError, "Failed to generate state")
-	}
-
-	verifier := oauth2.GenerateVerifier()
-	next := sanitizeRedirectTarget(r.FormValue("next"))
-
-	// Store state and verifier in a short-lived cookie
-	// In a real app, you might want to sign this or store in a server-side session
-	// Using a pipe separator to store both
-	cookieValue := fmt.Sprintf("%s|%s|%s", state, verifier, next)
-	http.SetCookie(w, &http.Cookie{
-		Name:     "twitter_oauth_state",
-		Value:    cookieValue,
-		Path:     "/",
-		Expires:  time.Now().Add(10 * time.Minute),
-		HttpOnly: true,
-		Secure:   IsRequestSecure(r),
-		SameSite: http.SameSiteLaxMode,
-	})
-
-	// Redirect to Twitter
-	url := config.AuthCodeURL(state, oauth2.AccessTypeOffline, oauth2.S256ChallengeOption(verifier))
-	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+// TwitterProvider implements OAuthProvider for Twitter (X) login.
+type TwitterProvider struct {
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
+	UseEmail     bool
 }
 
-func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) {
-	// Validate state
-	cookie, err := r.Cookie("twitter_oauth_state")
-	if err != nil {
-		HTTPPanic(http.StatusBadRequest, "State cookie missing")
-	}
+func (p *TwitterProvider) Name() string { return "twitter" }
 
-	parts := strings.Split(cookie.Value, "|")
-	if len(parts) < 2 {
-		HTTPPanic(http.StatusBadRequest, "Invalid state cookie")
-	}
-	expectedState := parts[0]
-	verifier := parts[1]
-	next := "/"
-	if len(parts) >= 3 {
-		next = sanitizeRedirectTarget(parts[2])
-	}
+func (p *TwitterProvider) UsePKCE() bool { return true }
 
-	state := r.FormValue("state")
-	if state != expectedState {
-		HTTPPanic(http.StatusBadRequest, "Invalid state param")
+func (p *TwitterProvider) OAuthConfig() *oauth2.Config {
+	scopes := []string{"users.read", "tweet.read", "offline.access"}
+	if p.UseEmail {
+		scopes = append(scopes, "users.email")
 	}
-
-	// Exchange code for token
-	code := r.FormValue("code")
-	if code == "" {
-		HTTPPanic(http.StatusBadRequest, "Code missing")
+	return &oauth2.Config{
+		ClientID:     p.ClientID,
+		ClientSecret: p.ClientSecret,
+		RedirectURL:  p.RedirectURL,
+		Scopes:       scopes,
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  "https://twitter.com/i/oauth2/authorize",
+			TokenURL: "https://api.twitter.com/2/oauth2/token",
+		},
 	}
+}
 
-	config := a.getTwitterConfig(r)
-	token, err := config.Exchange(r.Context(), code, oauth2.VerifierOption(verifier))
-	if err != nil {
-		HTTPPanic(http.StatusBadGateway, "%s", formatOAuthProviderError("Twitter token exchange failed", err))
-	}
-
-	// Fetch user info
-	client := config.Client(r.Context(), token)
-
-	fetchURL := twitterUserURL
-	if a.settings.TwitterUseEmail {
+func (p *TwitterProvider) FetchIdentity(ctx context.Context, client *http.Client) (string, string, error) {
+	fetchURL := "https://api.twitter.com/2/users/me"
+	if p.UseEmail {
 		fetchURL += "?user.fields=confirmed_email"
 	}
 
 	resp, err := client.Get(fetchURL)
 	if err != nil {
-		HTTPPanic(http.StatusBadGateway, "Failed to get user info: %v", err)
+		return "", "", fmt.Errorf("failed to get user info: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		HTTPPanic(http.StatusInternalServerError, "Failed to read user info response: %v", err)
+		return "", "", fmt.Errorf("failed to read user info response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		HTTPPanic(http.StatusBadGateway, "%s", formatOAuthProviderResponseError("Twitter API error", body, resp.Status))
+		return "", "", fmt.Errorf("%s", formatOAuthProviderResponseError("Twitter API error", body, resp.Status))
 	}
 
 	var userResp struct {
@@ -143,86 +80,15 @@ func (a *Handler) handleTwitterCallback(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if err := json.Unmarshal(body, &userResp); err != nil {
-		HTTPPanic(http.StatusInternalServerError, "Failed to decode user info")
+		return "", "", fmt.Errorf("failed to decode user info: %w", err)
 	}
 
-	// Process user
-	tx := a.db.Begin(r.Context())
-	defer tx.Rollback()
-
-	// Handle existing session (link account) or new login
-	currentUserID := CheckUserID(tx, r)
-
 	var email string
-	// Twitter v2 users/me doesn't clearly give email without special permissions/requests.
-	// We'll map the ID and Name as requested.
-	// Since we need an email for the user model, we might construct a dummy one if creating.
-	// Or we rely on the logic in signInOauth to handle creation.
-
-	// Create a stable "email" identity.
-	// The library uses email as a primary human-readable key.
-	// We'll use id + "@twitter.com" distinct placeholder, or username.
-	if a.settings.TwitterUseEmail && userResp.Data.ConfirmedEmail != "" {
+	if p.UseEmail && userResp.Data.ConfirmedEmail != "" {
 		email = userResp.Data.ConfirmedEmail
 	} else {
 		email = fmt.Sprintf("%s@twitter.example.com", userResp.Data.Username)
 	}
 
-	var userid int64
-	var created bool
-	if currentUserID != 0 {
-		// Link account
-		existingID := tx.GetOauthUser("twitter", userResp.Data.ID)
-		if existingID != 0 && existingID != currentUserID {
-			HTTPPanic(http.StatusBadRequest, "Twitter account already linked to another user")
-		}
-		tx.AddOauthUser("twitter", userResp.Data.ID, currentUserID)
-		userid = currentUserID
-	} else {
-		// Delegate to signInOauth logic
-		userid, created = signInOauth(tx, "twitter", userResp.Data.ID, email)
-	}
-
-	// Clear the state cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:     "twitter_oauth_state",
-		Path:     "/",
-		Expires:  time.Unix(0, 0),
-		HttpOnly: true,
-		Secure:   IsRequestSecure(r),
-		SameSite: http.SameSiteLaxMode,
-	})
-
-	// Finalize
-	if currentUserID != 0 {
-		// We were adding a method.
-		// Redirect to where? Maybe settings page?
-		// Or return JSON if this was an AJAX popup?
-		// The prompt doesn't specify. Assuming standard flow, redirect to home or close popup.
-		// Existing handleUserOauthAdd returns JSON info.
-		// But this is a full page redirect flow.
-		// We'll redirect to root "/" for now.
-		tx.Commit()
-		http.Redirect(w, r, next, http.StatusFound)
-	} else {
-		// We were logging in.
-		info := a.SignInUser(tx, w, userid, created, IsRequestSecure(r))
-
-		if a.settings.OnAuthEvent != nil {
-			action := "auth"
-			if created {
-				action = "create"
-			}
-			a.settings.OnAuthEvent(tx, action, userid, info)
-		}
-
-		tx.Commit()
-
-		// If it's a browser redirect, we should probably redirect to main app.
-		// Returning JSON might display it in browser.
-		// "Implement the OAuth2 exchange".
-		// Usually a callback redirects the user to the app dashboard.
-		http.Redirect(w, r, next, http.StatusFound)
-		// Or if we want to debug: SendJSON(w, info)
-	}
+	return userResp.Data.ID, email, nil
 }
