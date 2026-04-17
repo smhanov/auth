@@ -44,7 +44,9 @@ This example shows how to set up the authentication server with a SQLite databas
 
 		// 4. Mount the handler
 		// The endpoints will be available under /user/...
-		http.Handle("/user/", authHandler)
+		// If your frontend runs on another origin, wrap with auth.CORS
+		// and explicitly list the trusted origins.
+		http.Handle("/user/", auth.CORS(authHandler, []string{"https://app.example.com"}))
 
 		log.Println("Listening on :8080")
 		log.Fatal(http.ListenAndServe(":8080", nil))
@@ -385,9 +387,14 @@ Tokens are single-use - once used successfully, they're deleted from the databas
 5. CORS and Cookies
 
 If your frontend is on a different domain than your auth server, you need to:
-  - Use the `auth.CORS()` wrapper: `http.Handle("/user/", auth.CORS(authHandler))`
+  - Use the `auth.CORS()` wrapper with an explicit allow-list: `http.Handle("/user/", auth.CORS(authHandler, []string{"https://app.example.com"}))`
   - Configure your frontend to send credentials: `fetch(url, {credentials: 'include'})`
   - Ensure both domains are over HTTPS in production
+
+Cross-origin safety notes:
+  - Only list origins you fully trust. `auth.CORS()` rejects requests with an `Origin` header that is not on the allow-list.
+  - `auth.UnsafeCORS()` reflects any `Origin` and should only be used for tightly controlled environments, temporary development setups, or when you intentionally accept the risk.
+  - CORS is not a substitute for CSRF protection. Restricting origins helps prevent browser reads from untrusted sites, but you should still treat cross-origin credentialed requests as sensitive.
 
 6. Transaction Management
 

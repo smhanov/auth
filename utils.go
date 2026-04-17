@@ -55,11 +55,52 @@ func SendError(w http.ResponseWriter, status int, err error) {
 	writeErrorResponse(w, status, err.Error())
 }
 
-// CORS wraps an HTTP request handler, adding appropriate cors headers.
-// If CORS is desired, you can wrap the handler with it.
-func CORS(fn http.Handler) http.HandlerFunc {
+// CORS wraps an HTTP request handler, adding CORS headers only for the
+// explicitly allowed origins.
+//
+// Origins must be fully qualified values such as "https://app.example.com".
+// If you need the previous permissive behavior that reflects any Origin,
+// use UnsafeCORS instead.
+func CORS(fn http.Handler, allowedOrigins []string) http.HandlerFunc {
+	allowed := make(map[string]struct{}, len(allowedOrigins))
+	for _, origin := range allowedOrigins {
+		origin = strings.TrimSpace(origin)
+		if origin == "" {
+			continue
+		}
+		allowed[origin] = struct{}{}
+	}
+
+	if len(allowed) == 0 {
+		panic("auth.CORS requires at least one allowed origin; use auth.UnsafeCORS to allow any origin")
+	}
+
+	return corsHandler(fn, func(origin string) bool {
+		_, ok := allowed[origin]
+		return ok
+	})
+}
+
+// UnsafeCORS wraps an HTTP request handler and reflects any Origin.
+//
+// This matches the package's previous CORS behavior and should only be used
+// when you intentionally want to trust every calling origin.
+func UnsafeCORS(fn http.Handler) http.HandlerFunc {
+	return corsHandler(fn, func(string) bool { return true })
+}
+
+func corsHandler(fn http.Handler, originAllowed func(string) bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if origin := r.Header.Get("Origin"); origin != "" {
+			addVaryHeader(w.Header(), "Origin")
+			addVaryHeader(w.Header(), "Access-Control-Request-Method")
+			addVaryHeader(w.Header(), "Access-Control-Request-Headers")
+
+			if !originAllowed(origin) {
+				writeErrorResponse(w, http.StatusForbidden, "origin not allowed")
+				return
+			}
+
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
@@ -68,12 +109,23 @@ func CORS(fn http.Handler) http.HandlerFunc {
 			w.Header().Set("Access-Control-Expose-Headers", "Status, Content-Type, Content-Length")
 		}
 		// Stop here if its Preflighted OPTIONS request
-		if r.Method == "OPTIONS" {
+		if r.Method == http.MethodOptions {
 			return
 		}
 
 		fn.ServeHTTP(w, r)
 	}
+}
+
+func addVaryHeader(headers http.Header, value string) {
+	for _, existing := range headers.Values("Vary") {
+		for _, part := range strings.Split(existing, ",") {
+			if strings.TrimSpace(part) == value {
+				return
+			}
+		}
+	}
+	headers.Add("Vary", value)
 }
 
 // RecoverErrors will wrap an HTTP handler. When a panic occurs, it will

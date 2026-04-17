@@ -2,7 +2,7 @@ package auth
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -47,7 +47,7 @@ func httpRequest(url string, params map[string]string, jsonResult interface{}) {
 	}
 
 	if resp.StatusCode != 200 {
-		b, err := ioutil.ReadAll(resp.Body)
+		b, err := io.ReadAll(resp.Body)
 		log.Printf("Response: %v", b)
 		if err != nil {
 			panic(err)
