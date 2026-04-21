@@ -64,3 +64,7 @@ For full documentation, tutorials, and API reference, please visit the official 
 ```shell
 go get github.com/smhanov/auth
 ```
+
+## Acknowledgements
+
+Audited by [codepathfinder.dev](https://codepathfinder.dev). Trace vulnerabilities across your codebase.
