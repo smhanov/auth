@@ -67,6 +67,9 @@ type Settings struct {
 	AppleKeyID       string
 	ApplePrivateKey  string
 	AppleRedirectURL string
+	// AppleBundleIDs are App IDs / bundle IDs accepted as identity-token aud
+	// for native Sign in with Apple (POST /user/auth method=apple).
+	AppleBundleIDs []string
 
 	// OAuthProviders allows registering custom OAuth providers.
 	// Built-in providers (Google, Facebook, Twitter, Apple) are automatically
@@ -408,7 +411,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if method != "" {
-		foreignID, foreignEmail := VerifyOauth(method, token)
+		foreignID, foreignEmail := a.verifyOauth(method, token)
 		userid, created = signInOauth(tx, method, foreignID, foreignEmail)
 	} else {
 		var realPassword string
@@ -495,7 +498,7 @@ func (a *Handler) handleUserOauthAdd(w http.ResponseWriter, r *http.Request) {
 		HTTPPanic(400, "Missing method parameter")
 	}
 
-	foreignID, email := VerifyOauth(method, token)
+	foreignID, email := a.verifyOauth(method, token)
 	tx.AddOauthUser(method, foreignID, userid)
 
 	if updateEmail == "true" {

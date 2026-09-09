@@ -10,7 +10,7 @@ This library aims to provide "boring" but essential user authentication infrastr
 
 ## Key Benefits
 
-- **Comprehensive**: Handles Email/Password, OAuth (Google, Facebook, Twitter, Apple), and Enterprise SAML SSO out of the box.
+- **Comprehensive**: Handles Email/Password, OAuth (Google, Facebook, Twitter, Apple web and native identity tokens), and Enterprise SAML SSO out of the box.
 - **Extensible**: Pluggable OAuth provider API lets you add any OAuth2 provider (GitHub, GitLab, etc.) with a simple interface.
 - **Secure**: Includes built-in rate limiting, secure session management, and password hashing standards.
 - **Self-Hosted**: You own your data. Supports SQLite and PostgreSQL via `sqlx`.

@@ -111,6 +111,7 @@ To enable OAuth login with social providers, configure the following settings in
   - AppleKeyID: The Key ID of the Sign in with Apple private key.
   - ApplePrivateKey: The `.p8` / PKCS8 PEM contents of that key. There is no static Apple client secret; the library signs an ES256 JWT per token request.
   - AppleRedirectURL: Optional override for the callback URL. In most cases, leave this blank to use the default `{scheme}://{server}/user/oauth/callback/apple`, derived from the HTTP request. Apple requires HTTPS and rejects `http://localhost`; register the exact Return URL on the Services ID. The authorize request uses `response_mode=form_post`.
+  - AppleBundleIDs: App IDs / bundle IDs accepted as the identity-token `aud` for native Sign in with Apple. Native iOS tokens use the App ID, not the Services ID. You can set bundle IDs without the `.p8` key for a native-only deployment. Web `AppleClientID` is also accepted as `aud` so web and iOS users share the same `oauth` row.
 
 When using this default callback URL behavior behind a proxy, ensure both `X-Forwarded-Proto` and `X-Forwarded-Host` are set correctly.
 
@@ -257,6 +258,15 @@ You can also use a different destination per request, for example:
 	/user/oauth/login/twitter?next=/billing
 
 If `next` is omitted, the user is redirected to `/`.
+
+Native iOS Sign in with Apple does not use the redirect URLs. After `ASAuthorizationAppleIDCredential` succeeds, POST the `identityToken` JWT:
+
+	POST /user/auth
+	Form Data:
+		method: apple
+		token: <identityToken>
+
+Configure `AppleBundleIDs` to the App ID. The library verifies RS256 against Apple JWKS (`https://appleid.apple.com/auth/keys`), checks `iss`, `aud`, and `exp`, then signs in via the `session` cookie. Identity tokens expire in minutes; do not store them as a password. Link Apple to an existing account with `POST /user/oauth/add` using the same `method` and `token`.
 
 3. SAML Interaction
 

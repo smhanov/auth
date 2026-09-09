@@ -66,13 +66,42 @@ func httpRequest(url string, params map[string]string, jsonResult interface{}) {
 // email of the user from the token.
 // Returns the foriegn id and email, which can then be used
 // to sign in the user.
-// Valid methods are: "facebook", "google"
+// Valid methods are: "facebook", "google". Apple identity tokens
+// require Handler settings; use POST /user/auth with method=apple.
 func VerifyOauth(method, token string) (string, string) {
+	return verifyOauth(method, token, nil)
+}
+
+func (a *Handler) verifyOauth(method, token string) (string, string) {
+	return verifyOauth(method, token, a.appleAudiences())
+}
+
+func (a *Handler) appleAudiences() []string {
+	seen := make(map[string]struct{})
+	var audiences []string
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return
+		}
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		audiences = append(audiences, id)
+	}
+	add(a.settings.AppleClientID)
+	for _, id := range a.settings.AppleBundleIDs {
+		add(id)
+	}
+	return audiences
+}
+
+func verifyOauth(method, token string, appleAudiences []string) (string, string) {
 	switch method {
 	case "facebook":
 		var data facebookResponse
 		url := getURL("https://graph.facebook.com/v3.2/me")
-		// connect to me api to get email and foreign id
 		httpRequest(url, map[string]string{
 			"access_token": token,
 			"fields":       "name,email",
@@ -82,13 +111,16 @@ func VerifyOauth(method, token string) (string, string) {
 	case "google":
 		var data googleResponse
 		url := getURL("https://www.googleapis.com/oauth2/v3/tokeninfo")
-
-		// connect to me api to get email and foreign id
 		httpRequest(url, map[string]string{
 			"id_token": token,
 		}, &data)
 
 		return data.Sub, data.Email
+	case "apple":
+		if len(appleAudiences) == 0 {
+			HTTPPanic(400, "invalid oauth method")
+		}
+		return verifyAppleIdentityToken(token, appleAudiences)
 	}
 
 	HTTPPanic(400, "invalid oauth method")
