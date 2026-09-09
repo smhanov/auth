@@ -59,8 +59,17 @@ type Settings struct {
 	FacebookClientSecret string
 	FacebookRedirectURL  string
 
+	// Apple Settings. ClientID is a Services ID. There is no static client
+	// secret; the library signs a JWT with AppleTeamID, AppleKeyID, and
+	// ApplePrivateKey (.p8 / PKCS8 PEM).
+	AppleClientID    string
+	AppleTeamID      string
+	AppleKeyID       string
+	ApplePrivateKey  string
+	AppleRedirectURL string
+
 	// OAuthProviders allows registering custom OAuth providers.
-	// Built-in providers (Google, Facebook, Twitter) are automatically
+	// Built-in providers (Google, Facebook, Twitter, Apple) are automatically
 	// registered when their Client ID is configured in Settings.
 	// Use this field to add additional providers (e.g., GitHub, GitLab).
 	// See the OAuthProvider interface for implementation details.
@@ -619,6 +628,15 @@ func New(db DB, settings Settings) http.Handler {
 			ClientSecret: settings.TwitterClientSecret,
 			RedirectURL:  settings.TwitterRedirectURL,
 			UseEmail:     settings.TwitterUseEmail,
+		}
+	}
+	if settings.AppleClientID != "" {
+		handler.providers["apple"] = &AppleProvider{
+			ClientID:    settings.AppleClientID,
+			TeamID:      settings.AppleTeamID,
+			KeyID:       settings.AppleKeyID,
+			PrivateKey:  settings.ApplePrivateKey,
+			RedirectURL: settings.AppleRedirectURL,
 		}
 	}
 

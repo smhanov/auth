@@ -3,7 +3,7 @@ Package auth provides a complete, self-hosted user authentication system for Go 
 
 It includes:
   - Email/Password authentication
-  - OAuth2 login (Google, Facebook, Twitter) with built-in providers
+  - OAuth2 login (Google, Facebook, Twitter, Apple) with built-in providers
   - Pluggable OAuth provider API for adding custom providers (e.g., GitHub, GitLab)
   - SAML 2.0 support for Enterprise SSO
   - User session management via HTTP cookies
@@ -103,6 +103,14 @@ To enable OAuth login with social providers, configure the following settings in
   - FacebookClientID: Your Facebook OAuth 2.0 App ID.
   - FacebookClientSecret: Your Facebook OAuth 2.0 App Secret.
   - FacebookRedirectURL: Optional override for the callback URL. In most cases, leave this blank to use the default `{scheme}://{server}/user/oauth/callback/facebook`, derived from the HTTP request.
+
+4. Apple (Sign in with Apple)
+
+  - AppleClientID: The Services ID (not the App ID) from Apple Developer.
+  - AppleTeamID: Your Apple Developer Team ID.
+  - AppleKeyID: The Key ID of the Sign in with Apple private key.
+  - ApplePrivateKey: The `.p8` / PKCS8 PEM contents of that key. There is no static Apple client secret; the library signs an ES256 JWT per token request.
+  - AppleRedirectURL: Optional override for the callback URL. In most cases, leave this blank to use the default `{scheme}://{server}/user/oauth/callback/apple`, derived from the HTTP request. Apple requires HTTPS and rejects `http://localhost`; register the exact Return URL on the Services ID. The authorize request uses `response_mode=form_post`.
 
 When using this default callback URL behavior behind a proxy, ensure both `X-Forwarded-Proto` and `X-Forwarded-Host` are set correctly.
 
@@ -224,7 +232,7 @@ To sign in:
 
 The server responds with a JSON object containing user info and sets a `session` cookie.
 
-2. OAuth Interaction (Google, Facebook, Twitter)
+2. OAuth Interaction (Google, Facebook, Twitter, Apple)
 
 To enable OAuth, configure the Client ID and Secret in your Settings. In most cases, leave `*RedirectURL` blank so the callback URL is automatically derived as `{scheme}://{server}/user/oauth/callback/{provider}` from the HTTP request:
 
@@ -234,7 +242,7 @@ To enable OAuth, configure the Client ID and Secret in your Settings. In most ca
 
 If you are behind a reverse proxy, ensure `X-Forwarded-Proto` and `X-Forwarded-Host` are set so scheme and host are detected correctly.
 
-Important: `GoogleRedirectURL`, `FacebookRedirectURL`, and `TwitterRedirectURL` are the provider callback URLs, not the page the user sees after login completes.
+Important: `GoogleRedirectURL`, `FacebookRedirectURL`, `TwitterRedirectURL`, and `AppleRedirectURL` are the provider callback URLs, not the page the user sees after login completes.
 
 Start the login flow by sending the user to the login URL.
 
@@ -389,7 +397,7 @@ Users can link OAuth providers to their existing accounts:
 
 	POST /user/oauth/add
 	Form Data:
-		method: google       (or "facebook", "twitter")
+		method: google       (or "facebook", "twitter", "apple")
 		token: oauth-token   (from OAuth flow)
 		update_email: true   (Optional: update user's email to OAuth email)
 
@@ -464,7 +472,7 @@ Don't manually lowercase emails in your client code - the server handles this.
 
 3. OAuth Redirect URLs
 
-In most cases, leave `GoogleRedirectURL`, `FacebookRedirectURL`, and `TwitterRedirectURL` blank.
+In most cases, leave `GoogleRedirectURL`, `FacebookRedirectURL`, `TwitterRedirectURL`, and `AppleRedirectURL` blank.
 When blank, the library uses `{scheme}://{server}/user/oauth/callback/{provider}`, where scheme and server are automatically deduced from the HTTP request.
 If your app runs behind a reverse proxy, ensure `X-Forwarded-Proto` and `X-Forwarded-Host` are set correctly so the derived URL matches what you register with each provider.
 OAuth redirect URLs registered with providers must still match exactly (including protocol and port) the URL your deployment will generate.

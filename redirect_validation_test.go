@@ -67,6 +67,17 @@ func TestOAuthLoginRejectsExternalNext(t *testing.T) {
 				s.TwitterClientSecret = "secret"
 			},
 		},
+		{
+			name:       "apple",
+			path:       "/user/oauth/login/apple?next=https://evil.com/phish",
+			cookieName: "apple_oauth_state",
+			settings: func(s *Settings) {
+				s.AppleClientID = "cid"
+				s.AppleTeamID = "team"
+				s.AppleKeyID = "key"
+				s.ApplePrivateKey = "unused-for-login"
+			},
+		},
 	}
 
 	for _, tc := range tests {

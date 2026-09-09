@@ -12,3 +12,5 @@
 *.out
 .aider*
 .env
+credentials.txt
+/.plans/

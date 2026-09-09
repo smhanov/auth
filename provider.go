@@ -13,7 +13,7 @@ import (
 
 // OAuthProvider defines the interface for pluggable OAuth providers.
 // Implement this interface to add support for additional OAuth providers
-// beyond the built-in Google, Facebook, and Twitter providers.
+// beyond the built-in Google, Facebook, Twitter, and Apple providers.
 //
 // Each provider handles the server-side OAuth2 authorization code flow:
 //   - Login: redirects the user to the provider's authorization page
@@ -75,6 +75,14 @@ type OAuthProvider interface {
 	FetchIdentity(ctx context.Context, client *http.Client) (id string, email string, err error)
 }
 
+type oauthAuthCodeOptions interface {
+	AuthCodeOptions() []oauth2.AuthCodeOption
+}
+
+type oauthIdentityFromToken interface {
+	FetchIdentityFromToken(ctx context.Context, token *oauth2.Token) (id, email string, err error)
+}
+
 // resolveOAuthConfig creates a copy of the provider's OAuth config with the
 // RedirectURL resolved against the current request.
 func (a *Handler) resolveOAuthConfig(provider OAuthProvider, r *http.Request) *oauth2.Config {
@@ -118,6 +126,10 @@ func (a *Handler) handleOAuthLogin(provider OAuthProvider, w http.ResponseWriter
 		Secure:   IsRequestSecure(r),
 		SameSite: http.SameSiteLaxMode,
 	})
+
+	if extra, ok := provider.(oauthAuthCodeOptions); ok {
+		authOpts = append(authOpts, extra.AuthCodeOptions()...)
+	}
 
 	url := config.AuthCodeURL(state, authOpts...)
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
@@ -184,10 +196,13 @@ func (a *Handler) handleOAuthCallback(provider OAuthProvider, w http.ResponseWri
 			fmt.Sprintf("%s token exchange failed", providerName), err))
 	}
 
-	// Fetch user identity
-	client := config.Client(r.Context(), token)
-
-	foreignID, email, err := provider.FetchIdentity(r.Context(), client)
+	var foreignID, email string
+	if fromToken, ok := provider.(oauthIdentityFromToken); ok {
+		foreignID, email, err = fromToken.FetchIdentityFromToken(r.Context(), token)
+	} else {
+		client := config.Client(r.Context(), token)
+		foreignID, email, err = provider.FetchIdentity(r.Context(), client)
+	}
 	if err != nil {
 		HTTPPanic(http.StatusBadGateway, "Failed to get user info from %s: %v", providerName, err)
 	}
