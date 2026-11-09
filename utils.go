@@ -132,6 +132,9 @@ func addVaryHeader(headers http.Header, value string) {
 // RecoverErrors will wrap an HTTP handler. When a panic occurs, it will
 // print the stack to the log. Secondly, it will return the error text in both
 // the response header and response body so callers can read it reliably.
+// If the panic was caused by a database lock error, the response is a
+// 503 with a stable, retryable message instead, so clients can
+// distinguish a transient failure from a permanent one.
 func RecoverErrors(fn http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -146,12 +149,35 @@ func RecoverErrors(fn http.Handler) http.HandlerFunc {
 					status = fmt.Sprintf("%v", thing)
 					log.Printf("%v", thing)
 					log.Println(string(debug.Stack()))
+					if isLockPanic(thing) {
+						code = http.StatusServiceUnavailable
+						status = lockRetryResponseMessage
+					}
 				}
 				writeErrorResponse(w, code, status)
 			}
 		}()
 
 		fn.ServeHTTP(w, r)
+	}
+}
+
+// lockRetryResponseMessage is the stable body sent to clients when a
+// request failed because of a database lock. It tells them the request
+// is retryable without leaking the underlying error text.
+const lockRetryResponseMessage = "database is locked; please retry"
+
+// isLockPanic reports whether a recovered panic value represents a
+// database lock error, which is transient: such panics are retried with
+// backoff at their source and surface as a 503 when the lock persists.
+func isLockPanic(thing interface{}) bool {
+	switch v := thing.(type) {
+	case error:
+		return isLockError(v)
+	case string:
+		return isLockErrorMessage(v)
+	default:
+		return false
 	}
 }
 
