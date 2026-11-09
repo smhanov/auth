@@ -20,7 +20,7 @@ func TestTwitterLogin(t *testing.T) {
 	settings.TwitterClientID = "cid"
 	settings.TwitterClientSecret = "csec"
 	settings.TwitterRedirectURL = "http://localhost/callback"
-	
+
 	h := New(db, settings)
 
 	req := httptest.NewRequest("GET", "/user/oauth/login/twitter", nil)
@@ -37,7 +37,7 @@ func TestTwitterLogin(t *testing.T) {
 	if !strings.HasPrefix(loc.String(), "https://twitter.com/i/oauth2/authorize") {
 		t.Errorf("Wrong redirect URL: %s", loc.String())
 	}
-	
+
 	cookies := resp.Cookies()
 	var stateCookie *http.Cookie
 	for _, c := range cookies {
@@ -46,7 +46,7 @@ func TestTwitterLogin(t *testing.T) {
 			break
 		}
 	}
-	
+
 	if stateCookie == nil {
 		t.Fatal("State cookie not set")
 	}
@@ -66,14 +66,14 @@ func TestTwitterCallback(t *testing.T) {
 	settings.TwitterClientID = "cid"
 	settings.TwitterClientSecret = "csec"
 	settings.TwitterRedirectURL = "/callback" // Test relative path
-	
+
 	h := New(db, settings)
 
 	// 1. Simulate Login to get cookie (with next)
 	loginReq := httptest.NewRequest("GET", "/user/oauth/login/twitter?next=/dashboard", nil)
 	loginW := httptest.NewRecorder()
 	h.ServeHTTP(loginW, loginReq)
-	
+
 	cookies := loginW.Result().Cookies()
 	var stateCookie *http.Cookie
 	for _, c := range cookies {
@@ -121,10 +121,10 @@ func TestTwitterCallback(t *testing.T) {
 			return nil, nil // Error
 		},
 	}
-	
+
 	client := &http.Client{Transport: mock}
 	ctx := context.WithValue(callbackReq.Context(), oauth2.HTTPClient, client)
-	
+
 	// Inject mocked context
 	h.ServeHTTP(callbackW, callbackReq.WithContext(ctx))
 
@@ -136,7 +136,7 @@ func TestTwitterCallback(t *testing.T) {
 	if loc.Path != "/dashboard" {
 		t.Errorf("Expected redirect to /dashboard, got %s", loc.Path)
 	}
-	
+
 	// Verify user created
 	tx := db.Begin(context.Background())
 	uid := tx.GetOauthUser("twitter", "12345")

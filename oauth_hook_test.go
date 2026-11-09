@@ -27,20 +27,20 @@ func TestTwitterCallbackAuthHook(t *testing.T) {
 	settings := DefaultSettings
 	settings.TwitterClientID = "cid"
 	settings.TwitterClientSecret = "csec"
-	settings.TwitterRedirectURL = "/callback" 
-    
-    var capturedAction string
-    settings.OnAuthEvent = func(tx Tx, action string, userid int64, info UserInfo) {
-        capturedAction = action
-    }
-	
+	settings.TwitterRedirectURL = "/callback"
+
+	var capturedAction string
+	settings.OnAuthEvent = func(tx Tx, action string, userid int64, info UserInfo) {
+		capturedAction = action
+	}
+
 	h := New(db, settings)
 
 	// 1. Simulate Login to get cookie
 	loginReq := httptest.NewRequest("GET", "/user/oauth/login/twitter?next=/dashboard", nil)
 	loginW := httptest.NewRecorder()
 	h.ServeHTTP(loginW, loginReq)
-	
+
 	cookies := loginW.Result().Cookies()
 	var stateCookie *http.Cookie
 	for _, c := range cookies {
@@ -49,9 +49,9 @@ func TestTwitterCallbackAuthHook(t *testing.T) {
 			break
 		}
 	}
-    if stateCookie == nil {
-        t.Fatal("No state cookie")
-    }
+	if stateCookie == nil {
+		t.Fatal("No state cookie")
+	}
 	stateVal := strings.Split(stateCookie.Value, "|")[0]
 
 	// 2. Prepare Callback
@@ -73,8 +73,8 @@ func TestTwitterCallbackAuthHook(t *testing.T) {
 					}`)),
 				}, nil
 			}
-            if strings.Contains(req.URL.String(), "users/me") {
-                return &http.Response{
+			if strings.Contains(req.URL.String(), "users/me") {
+				return &http.Response{
 					StatusCode: 200,
 					Header:     make(http.Header),
 					Body: io.NopCloser(bytes.NewBufferString(`{
@@ -86,30 +86,30 @@ func TestTwitterCallbackAuthHook(t *testing.T) {
                         }
 					}`)),
 				}, nil
-            }
-            return &http.Response{StatusCode: 404}, nil
+			}
+			return &http.Response{StatusCode: 404}, nil
 		},
 	}
-    
-    ctx := context.WithValue(callbackReq.Context(), oauth2.HTTPClient, &http.Client{Transport: mock})
-    callbackReq = callbackReq.WithContext(ctx)
 
-    h.ServeHTTP(callbackW, callbackReq)
-    
-    if capturedAction != "create" {
-        t.Errorf("OnAuthEvent action expected 'create', got '%s'", capturedAction)
-    }
+	ctx := context.WithValue(callbackReq.Context(), oauth2.HTTPClient, &http.Client{Transport: mock})
+	callbackReq = callbackReq.WithContext(ctx)
 
-    // 3. Login again (existing user)
-    capturedAction = ""
-    // We can reuse the same mock since it returns the same user ID.
-    // Need new login request sequence to get new state.
-    
-    // Login 2 ...
+	h.ServeHTTP(callbackW, callbackReq)
+
+	if capturedAction != "create" {
+		t.Errorf("OnAuthEvent action expected 'create', got '%s'", capturedAction)
+	}
+
+	// 3. Login again (existing user)
+	capturedAction = ""
+	// We can reuse the same mock since it returns the same user ID.
+	// Need new login request sequence to get new state.
+
+	// Login 2 ...
 	loginReq2 := httptest.NewRequest("GET", "/user/oauth/login/twitter?next=/dashboard", nil)
 	loginW2 := httptest.NewRecorder()
 	h.ServeHTTP(loginW2, loginReq2)
-	
+
 	cookies2 := loginW2.Result().Cookies()
 	var stateCookie2 *http.Cookie
 	for _, c := range cookies2 {
@@ -124,16 +124,16 @@ func TestTwitterCallbackAuthHook(t *testing.T) {
 	callbackReq2 := httptest.NewRequest("GET", "/user/oauth/callback/twitter?state="+stateVal2+"&code=fakerequestcode2", nil)
 	callbackReq2.AddCookie(stateCookie2)
 	callbackW2 := httptest.NewRecorder()
-    
-    // Reuse context with mock
-    ctx2 := context.WithValue(callbackReq2.Context(), oauth2.HTTPClient, &http.Client{Transport: mock})
-    callbackReq2 = callbackReq2.WithContext(ctx2)
-    
-    h.ServeHTTP(callbackW2, callbackReq2)
-    
-    if capturedAction != "auth" {
-        t.Errorf("Second OnAuthEvent action expected 'auth', got '%s'", capturedAction)
-    }
+
+	// Reuse context with mock
+	ctx2 := context.WithValue(callbackReq2.Context(), oauth2.HTTPClient, &http.Client{Transport: mock})
+	callbackReq2 = callbackReq2.WithContext(ctx2)
+
+	h.ServeHTTP(callbackW2, callbackReq2)
+
+	if capturedAction != "auth" {
+		t.Errorf("Second OnAuthEvent action expected 'auth', got '%s'", capturedAction)
+	}
 }
 
 func TestGoogleCallbackAuthHook(t *testing.T) {
@@ -141,20 +141,20 @@ func TestGoogleCallbackAuthHook(t *testing.T) {
 	settings := DefaultSettings
 	settings.GoogleClientID = "cid"
 	settings.GoogleClientSecret = "csec"
-	settings.GoogleRedirectURL = "/callback" 
-    
-    var capturedAction string
-    settings.OnAuthEvent = func(tx Tx, action string, userid int64, info UserInfo) {
-        capturedAction = action
-    }
-	
+	settings.GoogleRedirectURL = "/callback"
+
+	var capturedAction string
+	settings.OnAuthEvent = func(tx Tx, action string, userid int64, info UserInfo) {
+		capturedAction = action
+	}
+
 	h := New(db, settings)
 
 	// 1. Simulate Login to get cookie
 	loginReq := httptest.NewRequest("GET", "/user/oauth/login/google?next=/dashboard", nil)
 	loginW := httptest.NewRecorder()
 	h.ServeHTTP(loginW, loginReq)
-	
+
 	cookies := loginW.Result().Cookies()
 	var stateCookie *http.Cookie
 	for _, c := range cookies {
@@ -163,9 +163,9 @@ func TestGoogleCallbackAuthHook(t *testing.T) {
 			break
 		}
 	}
-    if stateCookie == nil {
-        t.Fatal("No state cookie")
-    }
+	if stateCookie == nil {
+		t.Fatal("No state cookie")
+	}
 	stateVal := strings.Split(stateCookie.Value, "|")[0]
 
 	// 2. Prepare Callback
@@ -187,8 +187,8 @@ func TestGoogleCallbackAuthHook(t *testing.T) {
 					}`)),
 				}, nil
 			}
-            if strings.Contains(req.URL.String(), "userinfo") {
-                return &http.Response{
+			if strings.Contains(req.URL.String(), "userinfo") {
+				return &http.Response{
 					StatusCode: 200,
 					Header:     make(http.Header),
 					Body: io.NopCloser(bytes.NewBufferString(`{
@@ -197,19 +197,19 @@ func TestGoogleCallbackAuthHook(t *testing.T) {
                         "email": "test@example.com"
 					}`)),
 				}, nil
-            }
-            return &http.Response{StatusCode: 404}, nil
+			}
+			return &http.Response{StatusCode: 404}, nil
 		},
 	}
-    
-    ctx := context.WithValue(callbackReq.Context(), oauth2.HTTPClient, &http.Client{Transport: mock})
-    callbackReq = callbackReq.WithContext(ctx)
 
-    h.ServeHTTP(callbackW, callbackReq)
-    
-    if capturedAction != "create" {
-        t.Errorf("OnAuthEvent action expected 'create', got '%s'", capturedAction)
-    }
+	ctx := context.WithValue(callbackReq.Context(), oauth2.HTTPClient, &http.Client{Transport: mock})
+	callbackReq = callbackReq.WithContext(ctx)
+
+	h.ServeHTTP(callbackW, callbackReq)
+
+	if capturedAction != "create" {
+		t.Errorf("OnAuthEvent action expected 'create', got '%s'", capturedAction)
+	}
 }
 
 func TestFacebookCallbackAuthHook(t *testing.T) {
@@ -217,20 +217,20 @@ func TestFacebookCallbackAuthHook(t *testing.T) {
 	settings := DefaultSettings
 	settings.FacebookClientID = "cid"
 	settings.FacebookClientSecret = "csec"
-	settings.FacebookRedirectURL = "/callback" 
-    
-    var capturedAction string
-    settings.OnAuthEvent = func(tx Tx, action string, userid int64, info UserInfo) {
-        capturedAction = action
-    }
-	
+	settings.FacebookRedirectURL = "/callback"
+
+	var capturedAction string
+	settings.OnAuthEvent = func(tx Tx, action string, userid int64, info UserInfo) {
+		capturedAction = action
+	}
+
 	h := New(db, settings)
 
 	// 1. Simulate Login to get cookie
 	loginReq := httptest.NewRequest("GET", "/user/oauth/login/facebook?next=/dashboard", nil)
 	loginW := httptest.NewRecorder()
 	h.ServeHTTP(loginW, loginReq)
-	
+
 	cookies := loginW.Result().Cookies()
 	var stateCookie *http.Cookie
 	for _, c := range cookies {
@@ -239,9 +239,9 @@ func TestFacebookCallbackAuthHook(t *testing.T) {
 			break
 		}
 	}
-    if stateCookie == nil {
-        t.Fatal("No state cookie")
-    }
+	if stateCookie == nil {
+		t.Fatal("No state cookie")
+	}
 	stateVal := strings.Split(stateCookie.Value, "|")[0]
 
 	// 2. Prepare Callback
@@ -263,9 +263,9 @@ func TestFacebookCallbackAuthHook(t *testing.T) {
 					}`)),
 				}, nil
 			}
-            // Facebook graph api
-            if strings.Contains(req.URL.String(), "facebook.com/me") {
-                return &http.Response{
+			// Facebook graph api
+			if strings.Contains(req.URL.String(), "facebook.com/me") {
+				return &http.Response{
 					StatusCode: 200,
 					Header:     make(http.Header),
 					Body: io.NopCloser(bytes.NewBufferString(`{
@@ -274,17 +274,17 @@ func TestFacebookCallbackAuthHook(t *testing.T) {
                         "email": "test@example.com"
 					}`)),
 				}, nil
-            }
-            return &http.Response{StatusCode: 404}, nil
+			}
+			return &http.Response{StatusCode: 404}, nil
 		},
 	}
-    
-    ctx := context.WithValue(callbackReq.Context(), oauth2.HTTPClient, &http.Client{Transport: mock})
-    callbackReq = callbackReq.WithContext(ctx)
 
-    h.ServeHTTP(callbackW, callbackReq)
-    
-    if capturedAction != "create" {
-        t.Errorf("OnAuthEvent action expected 'create', got '%s'", capturedAction)
-    }
+	ctx := context.WithValue(callbackReq.Context(), oauth2.HTTPClient, &http.Client{Transport: mock})
+	callbackReq = callbackReq.WithContext(ctx)
+
+	h.ServeHTTP(callbackW, callbackReq)
+
+	if capturedAction != "create" {
+		t.Errorf("OnAuthEvent action expected 'create', got '%s'", capturedAction)
+	}
 }

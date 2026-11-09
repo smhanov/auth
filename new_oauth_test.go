@@ -19,7 +19,7 @@ func TestGoogleFlow(t *testing.T) {
 	settings.GoogleClientID = "cid"
 	settings.GoogleClientSecret = "csec"
 	settings.GoogleRedirectURL = "/callback" // Test relative path
-	
+
 	h := New(db, settings)
 
 	// 1. Login Redirect
@@ -31,7 +31,7 @@ func TestGoogleFlow(t *testing.T) {
 	if resp.StatusCode != http.StatusTemporaryRedirect {
 		t.Errorf("Google Login: Expected redirect, got %d", resp.StatusCode)
 	}
-	
+
 	cookies := resp.Cookies()
 	var stateCookie *http.Cookie
 	for _, c := range cookies {
@@ -43,7 +43,7 @@ func TestGoogleFlow(t *testing.T) {
 	if stateCookie == nil {
 		t.Fatal("Google Login: State cookie not set")
 	}
-	
+
 	// 2. Callback
 	stateVal := strings.Split(stateCookie.Value, "|")[0]
 	callbackReq := httptest.NewRequest("GET", "/user/oauth/callback/google?state="+stateVal+"&code=fake", nil)
@@ -73,7 +73,7 @@ func TestGoogleFlow(t *testing.T) {
 			return nil, nil
 		},
 	}
-	
+
 	client := &http.Client{Transport: mock}
 	ctx := context.WithValue(callbackReq.Context(), oauth2.HTTPClient, client)
 	h.ServeHTTP(callbackW, callbackReq.WithContext(ctx))
@@ -105,14 +105,14 @@ func TestFacebookFlow(t *testing.T) {
 	settings.FacebookClientID = "cid"
 	settings.FacebookClientSecret = "csec"
 	settings.FacebookRedirectURL = "http://localhost/callback"
-	
+
 	h := New(db, settings)
 
 	// 1. Login Redirect
 	req := httptest.NewRequest("GET", "/user/oauth/login/facebook", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
-	
+
 	// Check cookie
 	cookies := w.Result().Cookies()
 	var stateCookie *http.Cookie
@@ -127,7 +127,7 @@ func TestFacebookFlow(t *testing.T) {
 	}
 
 	stateVal := strings.Split(stateCookie.Value, "|")[0]
-	
+
 	// 2. Callback
 	callbackReq := httptest.NewRequest("GET", "/user/oauth/callback/facebook?state="+stateVal+"&code=fake", nil)
 	callbackReq.AddCookie(stateCookie)
@@ -157,7 +157,7 @@ func TestFacebookFlow(t *testing.T) {
 			return nil, nil
 		},
 	}
-	
+
 	client := &http.Client{Transport: mock}
 	ctx := context.WithValue(callbackReq.Context(), oauth2.HTTPClient, client)
 	h.ServeHTTP(callbackW, callbackReq.WithContext(ctx))
@@ -166,7 +166,7 @@ func TestFacebookFlow(t *testing.T) {
 	if resp.StatusCode != http.StatusFound {
 		t.Errorf("Facebook Callback: Expected redirect 302, got %d. Body: %s", resp.StatusCode, callbackW.Body.String())
 	}
-	
+
 	tx := db.db.MustBegin()
 	var count int
 	err := tx.Get(&count, "SELECT count(*) FROM users WHERE email='fb@example.com'")

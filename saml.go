@@ -24,7 +24,7 @@ import (
 func (a *Handler) initSaml(db DB) {
 	// check if we support V2
 	tx := db.Begin(a.settings.DefaultContext)
-	defer tx.Commit()
+	defer tx.Rollback()
 
 	privatekey := tx.GetValue("privatekey")
 	certificate := tx.GetValue("certificate")
@@ -97,6 +97,7 @@ func (a *Handler) initSaml(db DB) {
 	a.privateKey = privateKey
 	a.certificate = cert
 
+	tx.Commit()
 }
 
 func (a *Handler) newSamlSP(req *http.Request, metadataXML string) *samlsp.Middleware {
@@ -191,7 +192,7 @@ func (a *Handler) handleSamlACS(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 
 	tx := a.db.Begin(r.Context())
-	defer tx.Commit()
+	defer tx.Rollback()
 
 	issuer := getIssuer(r)
 	xml := tx.GetSamlIdentityProviderByID(issuer)
@@ -270,6 +271,7 @@ func (a *Handler) handleSamlACS(w http.ResponseWriter, r *http.Request) {
 		returnTo = sanitizeRedirectTarget(cookie.Value)
 	}
 	a.SignInUser(tx, w, userid, created, IsRequestSecure(r))
+	tx.Commit()
 	http.Redirect(w, r, returnTo, http.StatusSeeOther) // code 303 changes redirect to a GET request.
 }
 

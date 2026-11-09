@@ -22,7 +22,7 @@ func TestTwitterLoginWithEmailScope(t *testing.T) {
 	settings.TwitterClientSecret = "csec"
 	settings.TwitterRedirectURL = "http://localhost/callback"
 	settings.TwitterUseEmail = true
-	
+
 	h := New(db, settings)
 
 	req := httptest.NewRequest("GET", "/user/oauth/login/twitter", nil)
@@ -32,7 +32,7 @@ func TestTwitterLoginWithEmailScope(t *testing.T) {
 
 	resp := w.Result()
 	loc, _ := resp.Location()
-	
+
 	// Parse URL and check scope param
 	u, _ := url.Parse(loc.String())
 	scope := u.Query().Get("scope")
@@ -48,14 +48,14 @@ func TestTwitterCallbackWithEmail(t *testing.T) {
 	settings.TwitterClientSecret = "csec"
 	settings.TwitterRedirectURL = "/callback"
 	settings.TwitterUseEmail = true
-	
+
 	h := New(db, settings)
 
 	// 1. Simulate Login to get cookie
 	loginReq := httptest.NewRequest("GET", "/user/oauth/login/twitter", nil)
 	loginW := httptest.NewRecorder()
 	h.ServeHTTP(loginW, loginReq)
-	
+
 	cookies := loginW.Result().Cookies()
 	var stateCookie *http.Cookie
 	for _, c := range cookies {
@@ -105,13 +105,13 @@ func TestTwitterCallbackWithEmail(t *testing.T) {
 			return nil, nil // Error
 		},
 	}
-	
+
 	client := &http.Client{Transport: mock}
 	ctx := context.WithValue(callbackReq.Context(), oauth2.HTTPClient, client)
-	
+
 	// Inject mocked context
 	h.ServeHTTP(callbackW, callbackReq.WithContext(ctx))
-	
+
 	// Verify user created with correct email
 	tx := db.Begin(context.Background())
 	uid := tx.GetUserByEmail("realemail@example.com")

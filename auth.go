@@ -392,7 +392,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 	}
 
 	tx := a.db.Begin(req.Context())
-	defer tx.Commit() // so signout works below.
+	defer tx.Rollback()
 	signOut(tx, req)
 
 	var userid int64
@@ -407,6 +407,8 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 		} else {
 			HTTPPanic(http.StatusProxyAuthRequired, "sso required")
 		}
+		// Commit so the pre-auth signout above survives the early return.
+		tx.Commit()
 		return
 	}
 

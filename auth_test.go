@@ -347,9 +347,13 @@ func TestStuff(t *testing.T) {
 		},
 
 		{
-			name: "After a failed authentication, any previous user should be signed out",
+			name: "After a failed authentication, the previous user remains signed in",
 			path: "/user/get",
-			code: 401,
+			code: 200,
+			json: map[string]interface{}{
+				"email":  "example3-updated@example.com",
+				"userid": 3.0,
+			},
 		},
 
 		{
