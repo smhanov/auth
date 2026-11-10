@@ -126,7 +126,8 @@ func (a *Handler) newSamlSP(req *http.Request, metadataXML string) *samlsp.Middl
 	if metadataXML != "" {
 		ed, err = samlsp.ParseMetadata([]byte(metadataXML))
 		if err != nil {
-			panic(err) // TODO handle error
+			log.Printf("auth: cannot parse SAML identity provider metadata: %v", err)
+			HTTPPanic(http.StatusInternalServerError, "SAML identity provider configuration error")
 		}
 	}
 
@@ -139,7 +140,8 @@ func (a *Handler) newSamlSP(req *http.Request, metadataXML string) *samlsp.Middl
 	})
 
 	if err != nil {
-		log.Panic(err)
+		log.Printf("auth: cannot create SAML service provider: %v", err)
+		HTTPPanic(http.StatusInternalServerError, "SAML identity provider configuration error")
 	}
 
 	return m

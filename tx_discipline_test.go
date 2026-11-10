@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -170,35 +171,53 @@ const testIDPMetadata = `<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:me
 // samlStubDB routes one email address to a SAML identity provider and counts
 // explicit transaction commits. failCommit makes Commit panic with a
 // lock-shaped error, simulating a commit that exhausted its retry budget.
-// See MyDB in auth_test.go for the wrapping pattern.
+// samlMetadata, when non-empty, overrides the metadata returned by the stub
+// lookups so tests can feed invalid stored metadata. See MyDB in
+// auth_test.go for the wrapping pattern.
 type samlStubDB struct {
 	auth.DB
-	samlEmail  string
-	commits    int32
-	failCommit atomic.Bool
+	samlEmail    string
+	samlMetadata string
+	commits      int32
+	failCommit   atomic.Bool
 }
 
 type samlStubTx struct {
 	auth.Tx
-	samlEmail  string
-	commits    *int32
-	failCommit *atomic.Bool
+	samlEmail    string
+	samlMetadata string
+	commits      *int32
+	failCommit   *atomic.Bool
 }
 
 func (db *samlStubDB) Begin(ctx context.Context) auth.Tx {
 	return samlStubTx{
-		Tx:         db.DB.Begin(ctx),
-		samlEmail:  db.samlEmail,
-		commits:    &db.commits,
-		failCommit: &db.failCommit,
+		Tx:           db.DB.Begin(ctx),
+		samlEmail:    db.samlEmail,
+		samlMetadata: db.samlMetadata,
+		commits:      &db.commits,
+		failCommit:   &db.failCommit,
 	}
+}
+
+// stubMetadata returns the configured metadata override, or the valid
+// test metadata when none is set.
+func (tx samlStubTx) stubMetadata() string {
+	if tx.samlMetadata != "" {
+		return tx.samlMetadata
+	}
+	return testIDPMetadata
 }
 
 func (tx samlStubTx) GetSamlIdentityProviderForUser(email string) string {
 	if email == tx.samlEmail {
-		return testIDPMetadata
+		return tx.stubMetadata()
 	}
 	return ""
+}
+
+func (tx samlStubTx) GetSamlIdentityProviderByID(id string) string {
+	return tx.stubMetadata()
 }
 
 func (tx samlStubTx) Commit() {
@@ -328,5 +347,102 @@ func TestSamlCommitFailureGivesClean503(t *testing.T) {
 	}
 	if string(body) != "database is locked; please retry" {
 		t.Errorf("expected body 'database is locked; please retry', got %q", string(body))
+	}
+}
+
+// assertSamlConfigError checks the deliberate response for unparseable
+// stored identity provider metadata: a 500 whose body and Status header
+// carry the stable message, with no redirect or cookies.
+func assertSamlConfigError(t *testing.T, resp *http.Response) {
+	t.Helper()
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("expected 500 for unparseable metadata, got %d", resp.StatusCode)
+	}
+	if status := resp.Header.Get("Status"); status != "SAML identity provider configuration error" {
+		t.Errorf("expected status 'SAML identity provider configuration error', got %q", status)
+	}
+	if location := resp.Header.Get("Location"); location != "" {
+		t.Errorf("expected no Location header on the error response, got %q", location)
+	}
+	if cookies := resp.Header.Values("Set-Cookie"); len(cookies) != 0 {
+		t.Errorf("expected no Set-Cookie headers on the error response, got %v", cookies)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("could not read response body: %v", err)
+	}
+	if string(body) != "SAML identity provider configuration error" {
+		t.Errorf("expected body 'SAML identity provider configuration error', got %q", string(body))
+	}
+}
+
+// TestSamlInvalidMetadataGivesClean500 verifies that when the stored
+// identity provider metadata cannot be parsed, the sso branch returns a
+// deliberate 500 with a stable message instead of the raw library error,
+// which would leak internal details to the client.
+func TestSamlInvalidMetadataGivesClean500(t *testing.T) {
+	const email = "samlbadmd@example.com"
+
+	db := &samlStubDB{
+		DB:           auth.NewUserDB(sqlx.MustConnect("sqlite3", ":memory:")),
+		samlEmail:    email,
+		samlMetadata: `<notmetadata/>`,
+	}
+	handler := auth.New(db, auth.DefaultSettings)
+	client := newTestClient(handler)
+
+	resp := client.makePostRequest(t, "/user/auth", map[string]string{
+		"email": email,
+		"sso":   "1",
+	})
+	assertSamlConfigError(t, resp)
+}
+
+// TestSamlAcsInvalidMetadataGivesClean500 is the same check for the
+// assertion consumer service: the metadata looked up by issuer is
+// unparseable, so the request must fail with the same clean 500
+// instead of a raw panic.
+func TestSamlAcsInvalidMetadataGivesClean500(t *testing.T) {
+	const issuer = "https://idp.example.com/metadata"
+
+	db := &samlStubDB{
+		DB:           auth.NewUserDB(sqlx.MustConnect("sqlite3", ":memory:")),
+		samlMetadata: `<notmetadata/>`,
+	}
+	handler := auth.New(db, auth.DefaultSettings)
+	client := newTestClient(handler)
+
+	// A minimal SAML response carrying an Issuer. getIssuer only
+	// unmarshals the XML; it does not validate the response, so no
+	// signature or status is needed to reach the metadata lookup.
+	responseXML := `<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion"><saml:Issuer>` +
+		issuer + `</saml:Issuer></samlp:Response>`
+
+	resp := client.makePostRequest(t, "/user/saml/acs", map[string]string{
+		"SAMLResponse": base64.StdEncoding.EncodeToString([]byte(responseXML)),
+	})
+	assertSamlConfigError(t, resp)
+}
+
+// TestSamlMetadataEndpoint verifies the empty-metadata path through
+// newSamlSP: /user/saml/metadata builds the service provider without
+// identity provider metadata and serves its own entity descriptor.
+func TestSamlMetadataEndpoint(t *testing.T) {
+	handler := auth.New(auth.NewUserDB(sqlx.MustConnect("sqlite3", ":memory:")), auth.DefaultSettings)
+	client := newTestClient(handler)
+
+	resp := client.makeRequest(t, "/user/saml/metadata", nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 from the metadata endpoint, got %d", resp.StatusCode)
+	}
+	if contentType := resp.Header.Get("Content-Type"); contentType != "application/samlmetadata+xml" {
+		t.Errorf("expected content type 'application/samlmetadata+xml', got %q", contentType)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("could not read response body: %v", err)
+	}
+	if !strings.Contains(string(body), "EntityDescriptor") {
+		t.Errorf("expected an EntityDescriptor in the metadata, got %q", string(body))
 	}
 }
