@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"log"
 	"math/big"
 	"net/http"
@@ -216,10 +217,14 @@ func (a *Handler) handleSamlACS(w http.ResponseWriter, r *http.Request) {
 
 	assertion, err := m.ServiceProvider.ParseResponse(r, possibleRequestIDs)
 	if err != nil {
-		error2 := err.(*saml.InvalidResponseError)
-		log.Printf("Error2: %v", error2.PrivateErr)
-		log.Printf("Response: %v", error2.Response)
-		log.Panic(err)
+		// The validation failure reason is only for the server log;
+		// the client gets a stable message and status.
+		if invalid, ok := err.(*saml.InvalidResponseError); ok {
+			log.Printf("auth: rejected SAML response: %v", invalid.PrivateErr)
+		} else {
+			log.Printf("auth: rejected SAML response: %v", err)
+		}
+		HTTPPanic(http.StatusUnauthorized, "Invalid SAML response")
 	}
 
 	//log.Printf("Assertion: %v", prettyPrint(assertion))
@@ -283,27 +288,43 @@ func isEmail(input string) bool {
 	return at > 0 && dot > at
 }
 
-// GetSamlID returns the entity ID  contained within the XML for the
-// given identity provider.
+// GetSamlID returns the entity ID contained in the given identity
+// provider metadata XML, for use as the id when registering the
+// provider with AddSamlIdentityProviderMetadata. It is intended for
+// application setup code, and panics with an error if the metadata
+// cannot be parsed.
 func GetSamlID(xml string) string {
 	descriptor, err := samlsp.ParseMetadata([]byte(xml))
 	if err != nil {
-		log.Panic(err)
+		panic(fmt.Errorf("auth: cannot parse SAML identity provider metadata: %w", err))
 	}
 
 	return descriptor.EntityID
 }
 
+// getIssuer extracts the Issuer entity ID from the client-supplied
+// SAMLResponse parameter so its identity provider metadata can be looked
+// up before the response is validated. Malformed input (bad base64 or
+// unparseable XML) fails with a deliberate 400 that carries a stable
+// message; the underlying error stays in the server log. A response
+// without an issuer yields "", which the caller reports through its own
+// missing-issuer check.
 func getIssuer(req *http.Request) string {
 	decodedResponseXML, err := base64.StdEncoding.DecodeString(req.PostForm.Get("SAMLResponse"))
 
 	if err != nil {
-		log.Panic(err)
+		log.Printf("auth: cannot parse SAML response: %v", err)
+		HTTPPanic(http.StatusBadRequest, "Malformed SAML response")
 	}
 
 	resp := saml.Response{}
 	if err = xml.Unmarshal([]byte(decodedResponseXML), &resp); err != nil {
-		log.Panic(err)
+		log.Printf("auth: cannot parse SAML response: %v", err)
+		HTTPPanic(http.StatusBadRequest, "Malformed SAML response")
+	}
+
+	if resp.Issuer == nil {
+		return ""
 	}
 
 	return resp.Issuer.Value
