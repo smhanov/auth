@@ -510,6 +510,7 @@ When calling `auth.SignInUser()` or other database operations directly:
   - Always defer `tx.Rollback()` immediately after creating the transaction
   - Only call `tx.Commit()` after all operations succeed
   - Don't call both Commit and Rollback - Rollback is safe to call even after Commit
+  - Set the session cookie only after `tx.Commit()` succeeds: a cookie for a rolled-back session can never authenticate
 
 Example:
 
@@ -518,8 +519,9 @@ Example:
 
 	// ... do work ...
 
-	info := authHandler.SignInUser(tx, w, userid, false, auth.IsRequestSecure(r))
+	info, cookie := auth.SignInUser(db, tx, userid, false, auth.IsRequestSecure(r))
 	tx.Commit()
+	http.SetCookie(w, &cookie)
 	auth.SendJSON(w, info)
 */
 package auth

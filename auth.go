@@ -254,7 +254,7 @@ func (a *Handler) handleUserCreate(w http.ResponseWriter, r *http.Request) {
 	userid := tx.CreatePasswordUser(email, a.settings.HashPasswordFn(password))
 	var info UserInfo
 	if r.FormValue("signin") != "0" {
-		info = a.SignInUser(tx, w, userid, true, IsRequestSecure(r))
+		info = a.signInUser(tx, w, userid, true, IsRequestSecure(r))
 	} else {
 		info = a.getInfoFn(tx, userid, true)
 	}
@@ -349,28 +349,28 @@ func IsRequestSecure(r *http.Request) bool {
 
 // SignInUser performs the final steps of signing in an authenticated user,
 // including creating a session. It returns the info structure that should be
-// sent. You should first commit the transaction and then send this structure,
-// perhaps using the SendJSON helper.
+// sent, together with the session cookie for the new session. It does not
+// write to a ResponseWriter: hold on to the cookie and send it only after
+// tx.Commit() has succeeded, so the client never receives a session cookie
+// for a session that was rolled back.
 //
-// The session cookie is set on w immediately, before the caller commits the
-// transaction. When a request served by this package's handler fails before
-// its response is written (for example, the commit fails), the cookie is
-// discarded, so a client never receives a session cookie for a session that
-// was rolled back. In your own handlers, emit the cookie only after a
-// successful Commit.
+// SignInUser takes both db and tx because they play different roles: tx
+// composes the caller's transaction, while db supplies the optional GetInfo
+// hook used to build the returned info.
 //
 // Secure should be set to true if the http request was sent over HTTPs, to restrict
 // usage of the cookie to https only.
 //
 // Example:
-// info := auth.SignInUser(tx, w, userid, false, auth.IsRequestSecure(r))
+// info, cookie := auth.SignInUser(db, tx, userid, false, auth.IsRequestSecure(r))
 // tx.Commit()
+// http.SetCookie(w, &cookie)
 // auth.SendJSON(w, info)
-func (a *Handler) SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool, secure bool) UserInfo {
+func SignInUser(db DB, tx Tx, userid int64, newAccount bool, secure bool) (UserInfo, http.Cookie) {
 	cookie := MakeCookie()
 	tx.SignIn(userid, cookie)
 
-	info := a.getInfoFn(tx, userid, newAccount)
+	info := resolveGetInfoFn(db)(tx, userid, newAccount)
 
 	expiration := now().Add(30 * 24 * time.Hour)
 	cookieVal := http.Cookie{
@@ -381,7 +381,33 @@ func (a *Handler) SignInUser(tx Tx, w http.ResponseWriter, userid int64, newAcco
 		Secure:   secure,
 		HttpOnly: true,
 	}
-	http.SetCookie(w, &cookieVal)
+	return info, cookieVal
+}
+
+// resolveGetInfoFn returns the function used to build the UserInfo for a
+// sign-in: the DB's own GetInfo when it provides one, and the default
+// tx.GetInfo otherwise.
+func resolveGetInfoFn(db DB) func(tx Tx, userid int64, newAccount bool) UserInfo {
+	if customDB, ok := db.(interface {
+		GetInfo(tx Tx, userid int64, newAccount bool) UserInfo
+	}); ok {
+		return customDB.GetInfo
+	}
+	// Use default implementation from UserDB
+	return func(tx Tx, userid int64, newAccount bool) UserInfo {
+		return tx.GetInfo(userid, newAccount)
+	}
+}
+
+// signInUser signs the user in on behalf of a request served by this
+// package's handlers: it calls SignInUser and sets the session cookie on w
+// immediately, before the caller commits the transaction. When such a
+// request fails before its response is written (for example, the commit
+// fails), cookieGuard discards the cookie, so a client never receives a
+// session cookie for a session that was rolled back.
+func (a *Handler) signInUser(tx Tx, w http.ResponseWriter, userid int64, newAccount bool, secure bool) UserInfo {
+	info, cookie := SignInUser(a.db, tx, userid, newAccount, secure)
+	http.SetCookie(w, &cookie)
 	return info
 }
 
@@ -445,7 +471,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
-	info := a.SignInUser(tx, w, userid, created, IsRequestSecure(req))
+	info := a.signInUser(tx, w, userid, created, IsRequestSecure(req))
 
 	if a.settings.OnAuthEvent != nil {
 		a.settings.OnAuthEvent(tx, "auth", userid, info)
@@ -480,7 +506,7 @@ func (a *Handler) handleUserUpdate(w http.ResponseWriter, req *http.Request) {
 	if password != "" {
 		tx.UpdatePassword(userid, a.settings.HashPasswordFn(password))
 		tx.DeleteSessions(userid)
-		a.SignInUser(tx, w, userid, false, IsRequestSecure(req))
+		a.signInUser(tx, w, userid, false, IsRequestSecure(req))
 	}
 
 	tx.Commit()
@@ -578,7 +604,7 @@ func (a *Handler) handleUserResetPassword(w http.ResponseWriter, r *http.Request
 
 	tx.UpdatePassword(userid, a.settings.HashPasswordFn(password))
 	tx.DeleteSessions(userid)
-	info := a.SignInUser(tx, w, userid, false, IsRequestSecure(r))
+	info := a.signInUser(tx, w, userid, false, IsRequestSecure(r))
 
 	if a.settings.OnAuthEvent != nil {
 		a.settings.OnAuthEvent(tx, "resetpassword", userid, info)
@@ -588,7 +614,7 @@ func (a *Handler) handleUserResetPassword(w http.ResponseWriter, r *http.Request
 	SendJSON(w, info)
 }
 
-// New creates a new Handler
+// New creates a new Handler whose panics are converted to error responses.
 func New(db DB, settings Settings) http.Handler {
 
 	if settings.SendEmailFn == nil {
@@ -665,16 +691,7 @@ func New(db DB, settings Settings) http.Handler {
 	}
 
 	// Set up the default info getter
-	if customDB, ok := db.(interface {
-		GetInfo(tx Tx, userid int64, newAccount bool) UserInfo
-	}); ok {
-		handler.getInfoFn = customDB.GetInfo
-	} else {
-		// Use default implementation from UserDB
-		handler.getInfoFn = func(tx Tx, userid int64, newAccount bool) UserInfo {
-			return tx.GetInfo(userid, newAccount)
-		}
-	}
+	handler.getInfoFn = resolveGetInfoFn(db)
 
 	handler.initSaml(db)
 	return RecoverErrors(handler)

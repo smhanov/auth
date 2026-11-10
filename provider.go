@@ -242,7 +242,7 @@ func (a *Handler) handleOAuthCallback(provider OAuthProvider, w http.ResponseWri
 		tx.Commit()
 		http.Redirect(w, r, next, http.StatusFound)
 	} else {
-		info := a.SignInUser(tx, w, userid, created, IsRequestSecure(r))
+		info := a.signInUser(tx, w, userid, created, IsRequestSecure(r))
 
 		if a.settings.OnAuthEvent != nil {
 			action := "auth"

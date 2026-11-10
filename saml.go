@@ -272,7 +272,7 @@ func (a *Handler) handleSamlACS(w http.ResponseWriter, r *http.Request) {
 		})
 		returnTo = sanitizeRedirectTarget(cookie.Value)
 	}
-	a.SignInUser(tx, w, userid, created, IsRequestSecure(r))
+	a.signInUser(tx, w, userid, created, IsRequestSecure(r))
 	tx.Commit()
 	http.Redirect(w, r, returnTo, http.StatusSeeOther) // code 303 changes redirect to a GET request.
 }
