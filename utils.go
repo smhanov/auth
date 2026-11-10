@@ -202,6 +202,46 @@ func sanitizeHeaderValue(value string) string {
 	return value
 }
 
+// cookieGuard wraps the ResponseWriter used by the package's handlers.
+// Handlers set cookies (the session cookie in SignInUser, and the
+// OAuth/SAML bookkeeping cookies) while the transaction is still open,
+// before tx.Commit(). If the request then panics — for example a commit
+// that failed on a database lock — RecoverErrors writes an error
+// response through the same writer, and any cookie set earlier would be
+// sent along with it: a session cookie for a session that was rolled
+// back.
+//
+// The guard discards Set-Cookie headers when the handler panics before
+// writing any part of the response. Once the handler has written the
+// status or body, the headers (cookies included) have been sent and
+// nothing is changed. Handlers in this package always write the
+// response after committing the transaction, so cookies are only ever
+// dropped for failed requests.
+type cookieGuard struct {
+	http.ResponseWriter
+	wrote bool
+}
+
+func (w *cookieGuard) WriteHeader(status int) {
+	w.wrote = true
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *cookieGuard) Write(b []byte) (int, error) {
+	w.wrote = true
+	return w.ResponseWriter.Write(b)
+}
+
+// discardCookiesIfUnwritten removes cookies that were set but never
+// sent because no part of the response was written. It is deferred in
+// ServeHTTP so that it runs while a panic unwinds, before RecoverErrors
+// writes the error response.
+func (w *cookieGuard) discardCookiesIfUnwritten() {
+	if !w.wrote {
+		w.Header().Del("Set-Cookie")
+	}
+}
+
 func formatOAuthProviderError(prefix string, err error) string {
 	if retrieveErr, ok := err.(*oauth2.RetrieveError); ok {
 		return formatOAuthProviderResponseError(prefix, retrieveErr.Body, err.Error())

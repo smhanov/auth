@@ -166,6 +166,12 @@ const attemptsPeriod = time.Hour
 const passwordResetTokenLifetime = time.Hour
 
 func (a *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// If the request fails before the response is written, drop any
+	// cookies it set: they belong to a transaction that was rolled back.
+	guarded := &cookieGuard{ResponseWriter: w}
+	defer guarded.discardCookiesIfUnwritten()
+	w = guarded
+
 	p := strings.ReplaceAll(r.URL.Path, "/users/", "/user/")
 
 	switch p {
@@ -346,6 +352,13 @@ func IsRequestSecure(r *http.Request) bool {
 // sent. You should first commit the transaction and then send this structure,
 // perhaps using the SendJSON helper.
 //
+// The session cookie is set on w immediately, before the caller commits the
+// transaction. When a request served by this package's handler fails before
+// its response is written (for example, the commit fails), the cookie is
+// discarded, so a client never receives a session cookie for a session that
+// was rolled back. In your own handlers, emit the cookie only after a
+// successful Commit.
+//
 // Secure should be set to true if the http request was sent over HTTPs, to restrict
 // usage of the cookie to https only.
 //
@@ -402,13 +415,14 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 	// check if we have to use SAML
 	metaData := tx.GetSamlIdentityProviderForUser(username)
 	if metaData != "" {
-		if sso != "" {
-			a.handleSaml(w, req, metaData)
-		} else {
+		if sso == "" {
 			HTTPPanic(http.StatusProxyAuthRequired, "sso required")
 		}
-		// Commit so the pre-auth signout above survives the early return.
+		// Commit the pre-auth signout before writing the redirect so a
+		// commit failure produces a clean error response instead of
+		// garbling the already-sent redirect.
 		tx.Commit()
+		a.handleSaml(w, req, metaData)
 		return
 	}
 

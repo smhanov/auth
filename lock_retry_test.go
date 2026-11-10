@@ -338,12 +338,13 @@ func TestLockAtCommitIsNotSilentSuccess(t *testing.T) {
 	if body != lockRetryResponseBody {
 		t.Errorf("expected stable body %q, got %q", lockRetryResponseBody, body)
 	}
-	// Note: the handler sets the session cookie header before Commit()
-	// (auth.go SignInUser), so a 503 from a failed commit may still carry
-	// a Set-Cookie header. Changing that ordering is out of scope for
-	// this change; what matters here is that the client sees a
-	// retryable 503 and that the transaction is never applied, which
-	// the row check below proves.
+	// The handler sets the session cookie header before Commit()
+	// (auth.go SignInUser), but a 503 from a failed commit must not
+	// carry it: the session was rolled back, so the cookie could never
+	// authenticate.
+	if hasSessionCookie(resp) {
+		t.Error("a session cookie must not be sent when the commit failed")
+	}
 
 	// After the blocker lets go, the user must not exist: the failed
 	// transaction has to be rolled back, not applied.
@@ -355,6 +356,69 @@ func TestLockAtCommitIsNotSilentSuccess(t *testing.T) {
 	}
 	if count != 0 {
 		t.Errorf("user was committed despite the failed Commit(), found %d rows", count)
+	}
+}
+
+// TestSessionCookieDroppedWhenRequestPanicsBeforeResponse verifies the
+// cookie-emission window around SignInUser: it sets the session cookie
+// before the caller's tx.Commit(), so a request that fails after the
+// cookie is set but before the response is written must not deliver
+// it. The OnAuthEvent hook panics with a lock-shaped error exactly in
+// that window, without needing file-database lock machinery; the
+// create path (action "create", no panic) is the control showing that
+// successful responses still carry the cookie.
+func TestSessionCookieDroppedWhenRequestPanicsBeforeResponse(t *testing.T) {
+	db := sqlx.MustConnect("sqlite3", ":memory:")
+	t.Cleanup(func() { db.Close() })
+
+	settings := DefaultSettings
+	settings.HashPasswordFn = func(password string) string {
+		return "hashed:" + password
+	}
+	settings.OnAuthEvent = func(tx Tx, action string, userid int64, info UserInfo) {
+		if action == "auth" {
+			panic(errors.New("database is locked (5) (SQLITE_BUSY)"))
+		}
+	}
+	handler := New(NewUserDB(db), settings)
+
+	// Control: the create path fires OnAuthEvent("create"), does not
+	// panic, and its success response carries the session cookie.
+	resp, body := postUserCreate(t, handler, "cookie-window@example.com")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 on create, got %d (%s)", resp.StatusCode, body)
+	}
+	if !hasSessionCookie(resp) {
+		t.Error("expected a session cookie on the successful create")
+	}
+
+	form := url.Values{}
+	form.Set("email", "cookie-window@example.com")
+	form.Set("password", "correct-password")
+
+	req, err := http.NewRequest(http.MethodPost, "/user/auth", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatalf("could not create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Host = "localhost"
+	req.RemoteAddr = "127.0.0.1:60000"
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	resp = rec.Result()
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("could not read response body: %v", err)
+	}
+	body = string(bodyBytes)
+
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 for the lock-shaped panic, got %d (%s)",
+			resp.StatusCode, body)
+	}
+	if hasSessionCookie(resp) {
+		t.Error("a session cookie must not be sent for a request that failed before its response was written")
 	}
 }
 

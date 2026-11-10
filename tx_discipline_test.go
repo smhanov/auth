@@ -2,7 +2,9 @@ package auth_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -166,22 +168,30 @@ const testIDPMetadata = `<EntityDescriptor xmlns="urn:oasis:names:tc:SAML:2.0:me
 </EntityDescriptor>`
 
 // samlStubDB routes one email address to a SAML identity provider and counts
-// explicit transaction commits. See MyDB in auth_test.go for the wrapping
-// pattern.
+// explicit transaction commits. failCommit makes Commit panic with a
+// lock-shaped error, simulating a commit that exhausted its retry budget.
+// See MyDB in auth_test.go for the wrapping pattern.
 type samlStubDB struct {
 	auth.DB
-	samlEmail string
-	commits   int32
+	samlEmail  string
+	commits    int32
+	failCommit atomic.Bool
 }
 
 type samlStubTx struct {
 	auth.Tx
-	samlEmail string
-	commits   *int32
+	samlEmail  string
+	commits    *int32
+	failCommit *atomic.Bool
 }
 
 func (db *samlStubDB) Begin(ctx context.Context) auth.Tx {
-	return samlStubTx{Tx: db.DB.Begin(ctx), samlEmail: db.samlEmail, commits: &db.commits}
+	return samlStubTx{
+		Tx:         db.DB.Begin(ctx),
+		samlEmail:  db.samlEmail,
+		commits:    &db.commits,
+		failCommit: &db.failCommit,
+	}
 }
 
 func (tx samlStubTx) GetSamlIdentityProviderForUser(email string) string {
@@ -192,6 +202,9 @@ func (tx samlStubTx) GetSamlIdentityProviderForUser(email string) string {
 }
 
 func (tx samlStubTx) Commit() {
+	if tx.failCommit.Load() {
+		panic(errors.New("database is locked (5) (SQLITE_BUSY)"))
+	}
 	atomic.AddInt32(tx.commits, 1)
 	tx.Tx.Commit()
 }
@@ -265,4 +278,55 @@ func TestSamlRequiredPath(t *testing.T) {
 		path: "/user/get",
 		code: 401,
 	})
+}
+
+// TestSamlCommitFailureGivesClean503 verifies that the sso branch commits
+// the pre-auth signout before writing the identity provider redirect. When
+// the commit panics with a database lock error, the client must receive a
+// clean, retryable 503 — not a redirect that was already sent with the
+// error text appended after it.
+func TestSamlCommitFailureGivesClean503(t *testing.T) {
+	const email = "samlcommit@example.com"
+
+	db := &samlStubDB{
+		DB:        auth.NewUserDB(sqlx.MustConnect("sqlite3", ":memory:")),
+		samlEmail: email,
+	}
+	handler := auth.New(db, auth.DefaultSettings)
+	client := newTestClient(handler)
+
+	client.do(t, testRequest{
+		name: "create user and sign in",
+		path: "/user/create",
+		params: map[string]string{
+			"email":    email,
+			"password": "correct-password",
+		},
+		code: 200,
+	})
+
+	// From now on every commit panics with a lock error, as if the
+	// retry budget was exhausted while committing the signout.
+	db.failCommit.Store(true)
+
+	resp := client.makePostRequest(t, "/user/auth", map[string]string{
+		"email": email,
+		"sso":   "1",
+	})
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 when the commit fails, got %d", resp.StatusCode)
+	}
+	if location := resp.Header.Get("Location"); location != "" {
+		t.Errorf("expected no Location header on the error response, got %q", location)
+	}
+	if cookies := resp.Header.Values("Set-Cookie"); len(cookies) != 0 {
+		t.Errorf("expected no Set-Cookie headers on the error response, got %v", cookies)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("could not read response body: %v", err)
+	}
+	if string(body) != "database is locked; please retry" {
+		t.Errorf("expected body 'database is locked; please retry', got %q", string(body))
+	}
 }
