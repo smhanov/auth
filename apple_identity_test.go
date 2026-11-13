@@ -70,7 +70,8 @@ func (e *appleIdentityEnv) token(t *testing.T, claims appleIDTokenClaims) string
 
 func (e *appleIdentityEnv) validClaims(sub, email string) appleIDTokenClaims {
 	return appleIDTokenClaims{
-		Email: email,
+		Email:         email,
+		EmailVerified: "true",
 		StandardClaims: jwt.StandardClaims{
 			Issuer:    appleIssuer,
 			Audience:  e.bundle,
@@ -273,6 +274,31 @@ func TestAppleIdentityTokenRejects(t *testing.T) {
 				}
 				return signed
 			}(),
+		},
+		{
+			name: "unverified email",
+			token: env.token(t, appleIDTokenClaims{
+				Email:         "a@example.com",
+				EmailVerified: "false",
+				StandardClaims: jwt.StandardClaims{
+					Issuer:    appleIssuer,
+					Audience:  env.bundle,
+					ExpiresAt: time.Now().Add(time.Hour).Unix(),
+					Subject:   "sub1",
+				},
+			}),
+		},
+		{
+			name: "missing email_verified",
+			token: env.token(t, appleIDTokenClaims{
+				Email: "a@example.com",
+				StandardClaims: jwt.StandardClaims{
+					Issuer:    appleIssuer,
+					Audience:  env.bundle,
+					ExpiresAt: time.Now().Add(time.Hour).Unix(),
+					Subject:   "sub1",
+				},
+			}),
 		},
 		{
 			name: "bad signature",

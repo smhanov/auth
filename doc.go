@@ -78,6 +78,14 @@ Instead of creating 100 accounts on your site, the company connects their Identi
 The auth package supports OAuth2 login through both built-in providers and custom providers
 via the OAuthProvider interface.
 
+Security note on email matching: signing in through OAuth may match or create an
+account by the provider-reported email address only when the provider asserts
+that the address is verified (Google email_verified, Facebook and Twitter
+confirmed addresses, Apple email_verified). If the provider has not verified
+the address, the sign-in is rejected with 401 and no account is linked or
+created. Custom providers must implement VerifiedIdentityProvider to opt in
+to email matching, or return a placeholder address from FetchIdentity.
+
 There are two different redirect concepts in the OAuth flow:
 
   - `*RedirectURL` settings such as `GoogleRedirectURL` define the callback URL that the OAuth provider redirects back to.
@@ -124,6 +132,28 @@ The interface requires four methods:
   - OAuthConfig() *oauth2.Config: Returns the OAuth2 configuration (client ID, secret, scopes, endpoint).
   - UsePKCE() bool: Whether to use PKCE (Proof Key for Code Exchange) for added security.
   - FetchIdentity(ctx, client) (id, email, error): Fetches the user's ID and email from the provider.
+
+Email-based account matching requires the provider to assert that the email
+address is verified (for example, the OpenID Connect email_verified claim).
+An attacker who controls an OAuth identity carrying someone else's unverified
+email must not be able to sign in to that person's account, so sign-ins that
+would rely on an unverified email are rejected with 401. Providers that
+cannot report verification should not return a real email from
+FetchIdentity: return a placeholder address (e.g.,
+"{id}@provider.example.com") instead.
+
+To report verification, additionally implement the VerifiedIdentityProvider
+interface:
+
+	type VerifiedEmailGitHubProvider struct{ ... }
+
+	// FetchVerifiedIdentity is like FetchIdentity, additionally reporting
+	// whether the provider asserts the email is verified.
+	func (p *VerifiedEmailGitHubProvider) FetchVerifiedIdentity(ctx context.Context, client *http.Client) (id, email string, verified bool, err error) {
+		// ... fetch id and email, and set verified from the provider's
+		// email_verified signal (primary email verified via the API) ...
+		return id, email, verified, nil
+	}
 
 The framework handles the full server-side OAuth flow automatically: state generation, CSRF
 protection via cookies, authorization code exchange, and user sign-in/creation.
@@ -416,6 +446,9 @@ Users can link OAuth providers to their existing accounts:
 This is useful when:
   - A user initially created an account with email/password and now wants to link Google
   - A user wants to link multiple OAuth providers to one account
+
+Note: `update_email` only honors a provider email that the provider has
+verified; with an unverified provider email the request is rejected with 401.
 
 To remove an OAuth method:
 

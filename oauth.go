@@ -21,6 +21,12 @@ type facebookResponse struct {
 type googleResponse struct {
 	Sub   string `json:"sub"`
 	Email string `json:"email"`
+	// The tokeninfo endpoint returns every claim as a JSON string,
+	// unlike /userinfo which returns a real boolean for email_verified.
+	// See https://developers.google.com/identity/openid-connect/openid-connect#obtainidtoken.
+	EmailVerified string `json:"email_verified"`
+	Audience      string `json:"aud"`
+	Issuer        string `json:"iss"`
 }
 
 func getURL(url string) string {
@@ -68,11 +74,29 @@ func httpRequest(url string, params map[string]string, jsonResult interface{}) {
 // to sign in the user.
 // Valid methods are: "facebook", "google". Apple identity tokens
 // require Handler settings; use POST /user/auth with method=apple.
+//
+// The provider must assert that the email address is verified
+// (for example Google's email_verified claim): if it does not,
+// VerifyOauth panics with an HTTP 401 error and the email must not
+// be used to match or create local accounts. Use VerifyOauthVerified
+// to get the verification flag instead of the panic.
 func VerifyOauth(method, token string) (string, string) {
+	foreignID, email, verified := verifyOauth(method, token, nil)
+	if !verified {
+		HTTPPanic(http.StatusUnauthorized, "provider email not verified")
+	}
+	return foreignID, email
+}
+
+// VerifyOauthVerified is like VerifyOauth but does not panic on an
+// unverified provider email. It returns the foreign id and email along
+// with whether the provider asserted the email is verified. Only use the
+// returned email to match or create accounts when verified is true.
+func VerifyOauthVerified(method, token string) (string, string, bool) {
 	return verifyOauth(method, token, nil)
 }
 
-func (a *Handler) verifyOauth(method, token string) (string, string) {
+func (a *Handler) verifyOauth(method, token string) (string, string, bool) {
 	return verifyOauth(method, token, a.appleAudiences())
 }
 
@@ -97,7 +121,11 @@ func (a *Handler) appleAudiences() []string {
 	return audiences
 }
 
-func verifyOauth(method, token string, appleAudiences []string) (string, string) {
+// verifyOauth verifies an oauth token and returns the foreign user id,
+// the foreign email, and whether the provider asserts that the email
+// is verified. The email may only be used as an account key when the
+// verified flag is true.
+func verifyOauth(method, token string, appleAudiences []string) (string, string, bool) {
 	switch method {
 	case "facebook":
 		var data facebookResponse
@@ -107,7 +135,11 @@ func verifyOauth(method, token string, appleAudiences []string) (string, string)
 			"fields":       "name,email",
 		}, &data)
 
-		return data.ID, data.Email
+		// Meta's Graph API only returns the email field when the address
+		// is confirmed, and there is no separate email_verified flag, so
+		// presence of the email is the verification signal. A missing or
+		// empty email is not verified and must never be matched.
+		return data.ID, data.Email, data.Email != ""
 	case "google":
 		var data googleResponse
 		url := getURL("https://www.googleapis.com/oauth2/v3/tokeninfo")
@@ -115,7 +147,9 @@ func verifyOauth(method, token string, appleAudiences []string) (string, string)
 			"id_token": token,
 		}, &data)
 
-		return data.Sub, data.Email
+		// tokeninfo returns claims as JSON strings ("true"/"false"),
+		// unlike /userinfo which returns a real boolean.
+		return data.Sub, data.Email, data.EmailVerified == "true"
 	case "apple":
 		if len(appleAudiences) == 0 {
 			HTTPPanic(400, "invalid oauth method")
@@ -124,10 +158,18 @@ func verifyOauth(method, token string, appleAudiences []string) (string, string)
 	}
 
 	HTTPPanic(400, "invalid oauth method")
-	return "", ""
+	return "", "", false
 }
 
-func signInOauth(tx Tx, method string, foreignID string, email string) (int64, bool) {
+func signInOauth(tx Tx, method string, foreignID string, email string, emailVerified bool) (int64, bool) {
+
+	// Never use an email the provider has not verified as an account
+	// key: an attacker controlling an oauth identity that carries a
+	// victim's unverified address must not gain access to the victim's
+	// account, and the address must not be baked into a new account.
+	if !emailVerified {
+		HTTPPanic(http.StatusUnauthorized, "provider email not verified")
+	}
 
 	email = strings.ToLower(email)
 	emailUserID := tx.GetUserByEmail(email)

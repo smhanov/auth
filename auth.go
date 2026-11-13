@@ -453,8 +453,8 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if method != "" {
-		foreignID, foreignEmail := a.verifyOauth(method, token)
-		userid, created = signInOauth(tx, method, foreignID, foreignEmail)
+		foreignID, foreignEmail, emailVerified := a.verifyOauth(method, token)
+		userid, created = signInOauth(tx, method, foreignID, foreignEmail, emailVerified)
 	} else {
 		var realPassword string
 		userid, realPassword = tx.GetPassword(username)
@@ -540,10 +540,16 @@ func (a *Handler) handleUserOauthAdd(w http.ResponseWriter, r *http.Request) {
 		HTTPPanic(400, "Missing method parameter")
 	}
 
-	foreignID, email := a.verifyOauth(method, token)
+	// Linking is authenticated, so a verified email is not required to
+	// attach the identity, but the provider email may only overwrite the
+	// account email when the provider asserts it is verified.
+	foreignID, email, emailVerified := a.verifyOauth(method, token)
 	tx.AddOauthUser(method, foreignID, userid)
 
 	if updateEmail == "true" {
+		if !emailVerified {
+			HTTPPanic(http.StatusUnauthorized, "provider email not verified")
+		}
 		tx.UpdateEmail(userid, strings.ToLower(email))
 	}
 

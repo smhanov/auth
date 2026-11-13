@@ -53,6 +53,23 @@ settings.OAuthProviders = []auth.OAuthProvider{
 
 Routes are automatically created: `/user/oauth/login/github` and `/user/oauth/callback/github`.
 
+### Verified email requirement
+
+Accounts are matched by email only when the provider asserts the address is verified
+(Google `email_verified`, Facebook and Twitter confirmed addresses, Apple
+`email_verified`). A sign-in whose provider email is not verified is rejected
+with `401` and never links to an existing account or creates a new one.
+
+Custom providers must either:
+
+- implement `auth.VerifiedIdentityProvider` (an optional extension of
+  `OAuthProvider` with `FetchVerifiedIdentity`) to report verification, or
+- return a placeholder address (e.g. `{id}@provider.example.com`) from
+  `FetchIdentity` instead of a real email.
+
+Providers that implement only `FetchIdentity` are treated as unverified and
+fail closed.
+
 ## Documentation
 
 For full documentation, tutorials, and API reference, please visit the official Go docs:

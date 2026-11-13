@@ -22,6 +22,21 @@ versioned (tagged) release.
 - Ready-to-use flows for password reset, email update, and account creation.
 
 ### Fixed
+- OAuth sign-ins no longer match or create accounts by an email the provider
+  has not verified. Previously, an OAuth identity carrying a victim's
+  unverified email address could be used to take over the victim's account
+  (the account-linking bug class behind CVE-2026-53516 and similar reports).
+  Sign-ins relying on an unverified provider email are now rejected with 401,
+  no session is issued, and no `oauth` row is created. Google (tokeninfo
+  string claims and userinfo booleans), Apple identity tokens, Facebook
+  (confirmed addresses only, per Meta's Graph API), and Twitter
+  (`confirmed_email`) all check their provider verification signal. Custom
+  `OAuthProvider` implementations are treated as unverified and fail closed
+  unless they implement the new optional `VerifiedIdentityProvider`
+  interface; `VerifyOauth` keeps its v1.0.0 signature but now panics with an
+  HTTP 401 error on an unverified email — use the new `VerifyOauthVerified`
+  to read the verification flag instead. Also, `POST /user/oauth/add` with
+  `update_email=true` only honors a verified provider email.
 - Hardened SAML assertion handling: malformed client-triggerable input
   (bad base64, unparseable XML, missing `SAMLResponse`, missing `Issuer`,
   rejected assertions) now returns stable `400`/`401` responses instead of

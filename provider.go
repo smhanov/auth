@@ -75,12 +75,38 @@ type OAuthProvider interface {
 	FetchIdentity(ctx context.Context, client *http.Client) (id string, email string, err error)
 }
 
+// VerifiedIdentityProvider is an optional interface an OAuthProvider can
+// implement to report whether the provider asserts the user's email address
+// is verified.
+//
+// Matching local accounts by email is only safe when the provider has
+// verified that address (an attacker can otherwise register an oauth
+// identity carrying a victim's unverified email and take over the account;
+// see OIDC Core §5.7). Providers that implement only FetchIdentity are
+// treated as unverified: their email is never used to match or create
+// accounts, and sign-ins that would rely on it are rejected. Implement this
+// interface when your provider exposes a verified-email signal (e.g. the
+// OpenID Connect email_verified claim); otherwise return a placeholder
+// address (e.g. "{id}@provider.example.com") from FetchIdentity.
+type VerifiedIdentityProvider interface {
+	OAuthProvider
+
+	// FetchVerifiedIdentity is like FetchIdentity, additionally reporting
+	// whether the provider asserts the returned email address is verified.
+	// Only a verified email may be used to match or create accounts.
+	FetchVerifiedIdentity(ctx context.Context, client *http.Client) (id string, email string, verified bool, err error)
+}
+
 type oauthAuthCodeOptions interface {
 	AuthCodeOptions() []oauth2.AuthCodeOption
 }
 
 type oauthIdentityFromToken interface {
 	FetchIdentityFromToken(ctx context.Context, token *oauth2.Token) (id, email string, err error)
+}
+
+type oauthVerifiedIdentityFromToken interface {
+	FetchVerifiedIdentityFromToken(ctx context.Context, token *oauth2.Token) (id, email string, verified bool, err error)
 }
 
 // resolveOAuthConfig creates a copy of the provider's OAuth config with the
@@ -197,11 +223,20 @@ func (a *Handler) handleOAuthCallback(provider OAuthProvider, w http.ResponseWri
 	}
 
 	var foreignID, email string
-	if fromToken, ok := provider.(oauthIdentityFromToken); ok {
+	var emailVerified bool
+	if fromToken, ok := provider.(oauthVerifiedIdentityFromToken); ok {
+		foreignID, email, emailVerified, err = fromToken.FetchVerifiedIdentityFromToken(r.Context(), token)
+	} else if fromToken, ok := provider.(oauthIdentityFromToken); ok {
 		foreignID, email, err = fromToken.FetchIdentityFromToken(r.Context(), token)
+	} else if verifiedProvider, ok := provider.(VerifiedIdentityProvider); ok {
+		client := config.Client(r.Context(), token)
+		foreignID, email, emailVerified, err = verifiedProvider.FetchVerifiedIdentity(r.Context(), client)
 	} else {
 		client := config.Client(r.Context(), token)
 		foreignID, email, err = provider.FetchIdentity(r.Context(), client)
+		// Fail closed: a provider that cannot report verification is
+		// treated as unverified, so its email never matches accounts.
+		emailVerified = false
 	}
 	if err != nil {
 		HTTPPanic(http.StatusBadGateway, "Failed to get user info from %s: %v", providerName, err)
@@ -225,7 +260,7 @@ func (a *Handler) handleOAuthCallback(provider OAuthProvider, w http.ResponseWri
 		userid = currentUserID
 	} else {
 		// Sign in or create user
-		userid, created = signInOauth(tx, providerName, foreignID, email)
+		userid, created = signInOauth(tx, providerName, foreignID, email, emailVerified)
 	}
 
 	// Clear the state cookie

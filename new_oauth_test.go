@@ -66,7 +66,7 @@ func TestGoogleFlow(t *testing.T) {
 					StatusCode: 200,
 					Header:     make(http.Header),
 					Body: io.NopCloser(bytes.NewBufferString(`{
-						"sub": "12345", "name": "Google User", "email": "google@example.com"
+						"sub": "12345", "name": "Google User", "email": "google@example.com", "email_verified": true
 					}`)),
 				}, nil
 			}

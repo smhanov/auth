@@ -194,7 +194,8 @@ func TestGoogleCallbackAuthHook(t *testing.T) {
 					Body: io.NopCloser(bytes.NewBufferString(`{
                         "sub": "12345",
                         "name": "Test User",
-                        "email": "test@example.com"
+                        "email": "test@example.com",
+                        "email_verified": true
 					}`)),
 				}, nil
 			}

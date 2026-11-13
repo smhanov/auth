@@ -59,19 +59,32 @@ func (p *AppleProvider) FetchIdentity(_ context.Context, _ *http.Client) (string
 }
 
 func (p *AppleProvider) FetchIdentityFromToken(_ context.Context, token *oauth2.Token) (string, string, error) {
+	sub, email, _, err := p.fetchVerifiedIdentityFromToken(token)
+	return sub, email, err
+}
+
+// FetchVerifiedIdentityFromToken reports whether the Apple identity token
+// asserts the email is verified. Apple emits email_verified (a JSON string)
+// on its identity tokens; when it is not "true" the caller must refuse to
+// use the email as an account key (fail closed).
+func (p *AppleProvider) FetchVerifiedIdentityFromToken(_ context.Context, token *oauth2.Token) (string, string, bool, error) {
+	return p.fetchVerifiedIdentityFromToken(token)
+}
+
+func (p *AppleProvider) fetchVerifiedIdentityFromToken(token *oauth2.Token) (string, string, bool, error) {
 	raw, ok := token.Extra("id_token").(string)
 	if !ok || raw == "" {
-		return "", "", fmt.Errorf("apple token response missing id_token")
+		return "", "", false, fmt.Errorf("apple token response missing id_token")
 	}
 
-	sub, email, err := parseAppleIDToken(raw)
+	sub, email, verified, err := parseAppleIDToken(raw)
 	if err != nil {
-		return "", "", err
+		return "", "", false, err
 	}
 	if email == "" {
 		email = fmt.Sprintf("%s@apple.example.com", sub)
 	}
-	return sub, email, nil
+	return sub, email, verified, nil
 }
 
 func (p *AppleProvider) clientSecret() string {
@@ -120,26 +133,27 @@ func parseApplePrivateKey(raw string) (*ecdsa.PrivateKey, error) {
 	return ecKey, nil
 }
 
-func parseAppleIDToken(idToken string) (sub, email string, err error) {
+func parseAppleIDToken(idToken string) (sub, email string, verified bool, err error) {
 	parts := strings.Split(idToken, ".")
 	if len(parts) < 2 {
-		return "", "", fmt.Errorf("invalid apple id_token")
+		return "", "", false, fmt.Errorf("invalid apple id_token")
 	}
 
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return "", "", fmt.Errorf("invalid apple id_token payload: %w", err)
+		return "", "", false, fmt.Errorf("invalid apple id_token payload: %w", err)
 	}
 
 	var claims struct {
-		Sub   string `json:"sub"`
-		Email string `json:"email"`
+		Sub           string `json:"sub"`
+		Email         string `json:"email"`
+		EmailVerified string `json:"email_verified"`
 	}
 	if err := json.Unmarshal(payload, &claims); err != nil {
-		return "", "", fmt.Errorf("invalid apple id_token claims: %w", err)
+		return "", "", false, fmt.Errorf("invalid apple id_token claims: %w", err)
 	}
 	if claims.Sub == "" {
-		return "", "", fmt.Errorf("apple id_token missing sub")
+		return "", "", false, fmt.Errorf("apple id_token missing sub")
 	}
-	return claims.Sub, claims.Email, nil
+	return claims.Sub, claims.Email, claims.EmailVerified == "true", nil
 }

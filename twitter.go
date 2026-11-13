@@ -92,3 +92,16 @@ func (p *TwitterProvider) FetchIdentity(ctx context.Context, client *http.Client
 
 	return userResp.Data.ID, email, nil
 }
+
+// FetchVerifiedIdentity implements VerifiedIdentityProvider. Twitter's
+// users/me endpoint only reports confirmed_email, the verified address,
+// so a returned email is verified. When the email is withheld or the
+// UseEmail scope is off, a per-username placeholder is returned instead;
+// placeholders never match a real account.
+func (p *TwitterProvider) FetchVerifiedIdentity(ctx context.Context, client *http.Client) (string, string, bool, error) {
+	id, email, err := p.FetchIdentity(ctx, client)
+	if err != nil {
+		return "", "", false, err
+	}
+	return id, email, true, nil
+}

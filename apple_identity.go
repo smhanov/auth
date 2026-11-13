@@ -33,6 +33,8 @@ type appleJWK struct {
 
 type appleIDTokenClaims struct {
 	Email string `json:"email"`
+	// Apple emits email_verified as a JSON string ("true"/"false").
+	EmailVerified string `json:"email_verified"`
 	jwt.StandardClaims
 }
 
@@ -42,7 +44,13 @@ var appleJWKSCache struct {
 	fetched time.Time
 }
 
-func verifyAppleIdentityToken(idToken string, audiences []string) (string, string) {
+// verifyAppleIdentityToken verifies an Apple identity token against Apple's
+// JWKS and returns the subject, the email (a placeholder when Apple withheld
+// it), and whether the token asserts the email is verified. Apple always
+// verifies the addresses it issues; a token without a true email_verified
+// claim is reported as unverified and callers must refuse to use the email
+// as an account key (fail closed).
+func verifyAppleIdentityToken(idToken string, audiences []string) (string, string, bool) {
 	parser := &jwt.Parser{ValidMethods: []string{jwt.SigningMethodRS256.Alg()}}
 	claims := &appleIDTokenClaims{}
 	tok, err := parser.ParseWithClaims(idToken, claims, func(t *jwt.Token) (interface{}, error) {
@@ -68,11 +76,12 @@ func verifyAppleIdentityToken(idToken string, audiences []string) (string, strin
 	if claims.Subject == "" {
 		HTTPPanic(http.StatusBadRequest, "invalid apple identity token")
 	}
+	verified := claims.EmailVerified == "true"
 	email := claims.Email
 	if email == "" {
 		email = fmt.Sprintf("%s@apple.example.com", claims.Subject)
 	}
-	return claims.Subject, email
+	return claims.Subject, email, verified
 }
 
 func appleAudienceAllowed(tokenAud string, allowed []string) bool {

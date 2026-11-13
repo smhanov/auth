@@ -61,3 +61,16 @@ func (p *FacebookProvider) FetchIdentity(ctx context.Context, client *http.Clien
 
 	return userResp.ID, email, nil
 }
+
+// FetchVerifiedIdentity implements VerifiedIdentityProvider. Meta's Graph
+// API only returns the email field when the address is confirmed, and
+// there is no separate email_verified flag, so a returned email is
+// verified. When Facebook withholds the email, a per-id placeholder is
+// returned instead; placeholders never match a real account.
+func (p *FacebookProvider) FetchVerifiedIdentity(ctx context.Context, client *http.Client) (string, string, bool, error) {
+	id, email, err := p.FetchIdentity(ctx, client)
+	if err != nil {
+		return "", "", false, err
+	}
+	return id, email, true, nil
+}

@@ -48,7 +48,7 @@ func appleTestSettings(t *testing.T) Settings {
 
 func unsignedAppleIDToken(sub, email string) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"none","typ":"JWT"}`))
-	claims := map[string]string{"sub": sub}
+	claims := map[string]string{"sub": sub, "email_verified": "true"}
 	if email != "" {
 		claims["email"] = email
 	}
