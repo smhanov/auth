@@ -92,8 +92,15 @@ func oauthRowUser(t *testing.T, db *auth.UserDB, method, foreignID string) int64
 // createAccountThenSignOut creates a password user and signs out again.
 func createAccountThenSignOut(t *testing.T, email string) (*auth.UserDB, *testClient, int64) {
 	t.Helper()
+	return createAccountWithSettingsThenSignOut(t, email, auth.DefaultSettings)
+}
+
+// createAccountWithSettingsThenSignOut creates a password user on a
+// handler built from settings and signs out again.
+func createAccountWithSettingsThenSignOut(t *testing.T, email string, settings auth.Settings) (*auth.UserDB, *testClient, int64) {
+	t.Helper()
 	db := newMemoryDB(t)
-	client := newTestClient(auth.New(db, auth.DefaultSettings))
+	client := newTestClient(auth.New(db, settings))
 	client.do(t,
 		testRequest{
 			name:   "Create account",
@@ -120,11 +127,13 @@ func createAccountThenSignOut(t *testing.T, email string) (*auth.UserDB, *testCl
 // identity carrying a victim's unverified email must not link to the
 // victim's account, must not create any account, and must not sign in.
 func TestOauthUnverifiedEmailRejected(t *testing.T) {
-	db, client, victimID := createAccountThenSignOut(t, "victim@example.com")
+	db, client, victimID := createAccountWithSettingsThenSignOut(t, "victim@example.com", googleAuthSettings())
 	usersBefore := userCount(t, db)
 
-	// Google's tokeninfo endpoint reports claims as JSON strings.
-	startProviderMock(t, `{"sub":"attacker-sub-999","email":"victim@example.com","email_verified":"false"}`)
+	// Google's tokeninfo endpoint reports claims as JSON strings. The
+	// aud matches the configured client ID so only the unverified email
+	// causes the rejection.
+	startProviderMock(t, googleTokenInfo("attacker-sub-999", "victim@example.com", false, googleClientID, "accounts.google.com"))
 
 	resp := client.makeRequest(t, "/user/auth", map[string]string{
 		"method": "google",
@@ -159,9 +168,9 @@ func TestOauthUnverifiedEmailRejected(t *testing.T) {
 // a provider-asserted verified email keeps working, and that the tokeninfo
 // string-typed email_verified claim is parsed correctly.
 func TestOauthVerifiedEmailStillLinks(t *testing.T) {
-	db, client, victimID := createAccountThenSignOut(t, "victim@example.com")
+	db, client, victimID := createAccountWithSettingsThenSignOut(t, "victim@example.com", googleAuthSettings())
 
-	startProviderMock(t, `{"sub":"attacker-sub-999","email":"victim@example.com","email_verified":"true"}`)
+	startProviderMock(t, googleTokenInfo("attacker-sub-999", "victim@example.com", true, googleClientID, "accounts.google.com"))
 
 	client.do(t, testRequest{
 		name:   "Verified google email links to the victim account",
@@ -392,8 +401,11 @@ func TestCustomProviderWithVerifiedIdentityLinks(t *testing.T) {
 // TestVerifyOauthRejectsUnverifiedEmail checks that the exported
 // VerifyOauth keeps its signature but panics with an HTTP 401 error for an
 // unverified provider email, while VerifyOauthVerified exposes the flag.
+// Facebook reports verification through the presence of an email, so an
+// identity without one must be refused. (Google needs Handler settings on
+// the package-level helpers; see TestVerifyOauthGoogleRequiresHandler.)
 func TestVerifyOauthRejectsUnverifiedEmail(t *testing.T) {
-	startProviderMock(t, `{"sub":"attacker-sub-999","email":"victim@example.com","email_verified":"false"}`)
+	startProviderMock(t, `{"id":"fb-attacker-999","name":"Evil"}`)
 
 	func() {
 		defer func() {
@@ -412,33 +424,35 @@ func TestVerifyOauthRejectsUnverifiedEmail(t *testing.T) {
 				t.Errorf("expected clear message, got %q", herr.Error())
 			}
 		}()
-		auth.VerifyOauth("google", "tok")
+		auth.VerifyOauth("facebook", "tok")
 	}()
 
-	id, email, verified := auth.VerifyOauthVerified("google", "tok")
+	id, email, verified := auth.VerifyOauthVerified("facebook", "tok")
 	if verified {
 		t.Errorf("VerifyOauthVerified reported verified=true for an unverified email")
 	}
-	if id != "attacker-sub-999" || email != "victim@example.com" {
+	if id != "fb-attacker-999" || email != "" {
 		t.Errorf("VerifyOauthVerified returned (%q, %q)", id, email)
 	}
 }
 
 // TestVerifyOauthVerifiedEmailReturnsFlag checks the happy path of the
-// exported verification API.
+// exported verification API. Google requires Handler settings on the
+// package-level helpers (see TestVerifyOauthGoogleRequiresHandler), so
+// this uses Facebook, which treats a returned email as confirmed.
 func TestVerifyOauthVerifiedEmailReturnsFlag(t *testing.T) {
-	startProviderMock(t, `{"sub":"sub-1","email":"someone@example.com","email_verified":"true"}`)
+	startProviderMock(t, `{"id":"fb-1","name":"Someone","email":"someone@example.com"}`)
 
-	id, email := auth.VerifyOauth("google", "tok")
-	if id != "sub-1" || email != "someone@example.com" {
+	id, email := auth.VerifyOauth("facebook", "tok")
+	if id != "fb-1" || email != "someone@example.com" {
 		t.Errorf("VerifyOauth returned (%q, %q)", id, email)
 	}
 
-	id, email, verified := auth.VerifyOauthVerified("google", "tok")
+	id, email, verified := auth.VerifyOauthVerified("facebook", "tok")
 	if !verified {
 		t.Errorf("VerifyOauthVerified reported verified=false for a verified email")
 	}
-	if id != "sub-1" || email != "someone@example.com" {
+	if id != "fb-1" || email != "someone@example.com" {
 		t.Errorf("VerifyOauthVerified returned (%q, %q)", id, email)
 	}
 }

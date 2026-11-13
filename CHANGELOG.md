@@ -37,6 +37,23 @@ versioned (tagged) release.
   HTTP 401 error on an unverified email — use the new `VerifyOauthVerified`
   to read the verification flag instead. Also, `POST /user/oauth/add` with
   `update_email=true` only honors a verified provider email.
+- Google ID tokens presented to the legacy token path (`POST /user/auth` and
+  `POST /user/oauth/add` with `method=google`) are now bound to this
+  deployment: the token's `aud` claim must equal the configured
+  `GoogleClientID` and its `iss` must be `accounts.google.com` or
+  `https://accounts.google.com`, or the request fails with 401 ("invalid
+  google token"). Previously, any valid Google ID token issued to *any*
+  OAuth client could be replayed to sign in as that Google user.
+  Migration: deployments that used only this legacy path must set
+  `GoogleClientID` in Settings — requests fail with 400 ("google client id
+  not configured") until they do — or migrate to the
+  `/user/oauth/login/google` redirect flow, which binds the token to your
+  client through the authorization-code exchange. The package-level
+  `VerifyOauth` and `VerifyOauthVerified` no longer accept `method=google`
+  (400) because they have no client ID to check the token against; use the
+  Handler endpoints instead. Also, a non-200 response from a provider
+  endpoint now fails the request with 502 ("oauth provider error") instead
+  of being decoded into an empty identity.
 - Hardened SAML assertion handling: malformed client-triggerable input
   (bad base64, unparseable XML, missing `SAMLResponse`, missing `Issuer`,
   rejected assertions) now returns stable `400`/`401` responses instead of

@@ -51,13 +51,15 @@ func httpRequest(url string, params map[string]string, jsonResult interface{}) {
 	if err != nil {
 		panic(err)
 	}
+	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		b, err := io.ReadAll(resp.Body)
-		log.Printf("Response: %v", b)
 		if err != nil {
 			panic(err)
 		}
+		log.Printf("oauth provider returned status %d: %s", resp.StatusCode, b)
+		HTTPPanic(http.StatusBadGateway, "oauth provider error")
 	}
 
 	decoder := json.NewDecoder(resp.Body)
@@ -67,13 +69,20 @@ func httpRequest(url string, params map[string]string, jsonResult interface{}) {
 	}
 }
 
+// googleNoHandlerMessage is returned by the package-level VerifyOauth
+// helpers for method=google: verifying a Google ID token requires
+// comparing its aud claim against this deployment's Google client ID,
+// which only a Handler's settings know.
+const googleNoHandlerMessage = "google client id not configured; use POST /user/auth with method=google on a Handler with Settings.GoogleClientID"
+
 // VerifyOauth contacts the oauth provider, specified with
 // method, and retrieves the foriegn user id and foreign
 // email of the user from the token.
 // Returns the foriegn id and email, which can then be used
 // to sign in the user.
-// Valid methods are: "facebook", "google". Apple identity tokens
-// require Handler settings; use POST /user/auth with method=apple.
+// Valid method is: "facebook". Google and Apple identity tokens require
+// Handler settings to verify the token audience; use POST /user/auth with
+// method=google or method=apple on a Handler created by New instead.
 //
 // The provider must assert that the email address is verified
 // (for example Google's email_verified claim): if it does not,
@@ -81,7 +90,10 @@ func httpRequest(url string, params map[string]string, jsonResult interface{}) {
 // be used to match or create local accounts. Use VerifyOauthVerified
 // to get the verification flag instead of the panic.
 func VerifyOauth(method, token string) (string, string) {
-	foreignID, email, verified := verifyOauth(method, token, nil)
+	if method == "google" {
+		HTTPPanic(http.StatusBadRequest, "%s", googleNoHandlerMessage)
+	}
+	foreignID, email, verified := verifyOauth(method, token, oauthVerifyOptions{})
 	if !verified {
 		HTTPPanic(http.StatusUnauthorized, "provider email not verified")
 	}
@@ -93,39 +105,68 @@ func VerifyOauth(method, token string) (string, string) {
 // with whether the provider asserted the email is verified. Only use the
 // returned email to match or create accounts when verified is true.
 func VerifyOauthVerified(method, token string) (string, string, bool) {
-	return verifyOauth(method, token, nil)
+	if method == "google" {
+		HTTPPanic(http.StatusBadRequest, "%s", googleNoHandlerMessage)
+	}
+	return verifyOauth(method, token, oauthVerifyOptions{})
 }
 
 func (a *Handler) verifyOauth(method, token string) (string, string, bool) {
-	return verifyOauth(method, token, a.appleAudiences())
+	return verifyOauth(method, token, oauthVerifyOptions{
+		appleAudiences:  a.appleAudiences(),
+		googleAudiences: a.googleAudiences(),
+	})
 }
 
-func (a *Handler) appleAudiences() []string {
+// audienceList trims each id, drops empty and duplicate ones, and returns
+// the remaining audience values in order.
+func audienceList(ids ...string) []string {
 	seen := make(map[string]struct{})
 	var audiences []string
-	add := func(id string) {
+	for _, id := range ids {
 		id = strings.TrimSpace(id)
 		if id == "" {
-			return
+			continue
 		}
 		if _, ok := seen[id]; ok {
-			return
+			continue
 		}
 		seen[id] = struct{}{}
 		audiences = append(audiences, id)
 	}
-	add(a.settings.AppleClientID)
-	for _, id := range a.settings.AppleBundleIDs {
-		add(id)
-	}
 	return audiences
+}
+
+func (a *Handler) appleAudiences() []string {
+	ids := make([]string, 0, 1+len(a.settings.AppleBundleIDs))
+	ids = append(ids, a.settings.AppleClientID)
+	ids = append(ids, a.settings.AppleBundleIDs...)
+	return audienceList(ids...)
+}
+
+// googleAudiences returns the Google ID-token aud values accepted by the
+// legacy tokeninfo path: the configured Google client ID. It is empty when
+// no client ID is configured, which makes method=google fail closed.
+func (a *Handler) googleAudiences() []string {
+	return audienceList(a.settings.GoogleClientID)
+}
+
+// oauthVerifyOptions carries the deployment-specific audiences that bind
+// provider tokens to this application.
+type oauthVerifyOptions struct {
+	// appleAudiences holds the identity-token aud values accepted for
+	// method=apple.
+	appleAudiences []string
+	// googleAudiences holds the ID-token aud values accepted for
+	// method=google.
+	googleAudiences []string
 }
 
 // verifyOauth verifies an oauth token and returns the foreign user id,
 // the foreign email, and whether the provider asserts that the email
 // is verified. The email may only be used as an account key when the
 // verified flag is true.
-func verifyOauth(method, token string, appleAudiences []string) (string, string, bool) {
+func verifyOauth(method, token string, opts oauthVerifyOptions) (string, string, bool) {
 	switch method {
 	case "facebook":
 		var data facebookResponse
@@ -141,24 +182,44 @@ func verifyOauth(method, token string, appleAudiences []string) (string, string,
 		// empty email is not verified and must never be matched.
 		return data.ID, data.Email, data.Email != ""
 	case "google":
+		if len(opts.googleAudiences) == 0 {
+			HTTPPanic(http.StatusBadRequest, "google client id not configured")
+		}
+
 		var data googleResponse
 		url := getURL("https://www.googleapis.com/oauth2/v3/tokeninfo")
 		httpRequest(url, map[string]string{
 			"id_token": token,
 		}, &data)
 
+		// The ID token must have been issued to this application: the
+		// aud claim is compared against the configured client ID, and
+		// iss must be one of Google's two issuer spellings. Otherwise
+		// any valid Google ID token issued to any OAuth client could be
+		// replayed here to sign in as that Google user.
+		// See https://developers.google.com/identity/gsi/web/guides/verify-google-id-token.
+		if !audienceAllowed(data.Audience, opts.googleAudiences) || !validGoogleIssuer(data.Issuer) {
+			HTTPPanic(http.StatusUnauthorized, "invalid google token")
+		}
+
 		// tokeninfo returns claims as JSON strings ("true"/"false"),
 		// unlike /userinfo which returns a real boolean.
 		return data.Sub, data.Email, data.EmailVerified == "true"
 	case "apple":
-		if len(appleAudiences) == 0 {
+		if len(opts.appleAudiences) == 0 {
 			HTTPPanic(400, "invalid oauth method")
 		}
-		return verifyAppleIdentityToken(token, appleAudiences)
+		return verifyAppleIdentityToken(token, opts.appleAudiences)
 	}
 
 	HTTPPanic(400, "invalid oauth method")
 	return "", "", false
+}
+
+// validGoogleIssuer reports whether iss is one of Google's two issuer
+// spellings; the tokeninfo endpoint emits both forms.
+func validGoogleIssuer(issuer string) bool {
+	return issuer == "accounts.google.com" || issuer == "https://accounts.google.com"
 }
 
 func signInOauth(tx Tx, method string, foreignID string, email string, emailVerified bool) (int64, bool) {

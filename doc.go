@@ -298,6 +298,15 @@ Native iOS Sign in with Apple does not use the redirect URLs. After `ASAuthoriza
 
 Configure `AppleBundleIDs` to the App ID. The library verifies RS256 against Apple JWKS (`https://appleid.apple.com/auth/keys`), checks `iss`, `aud`, and `exp`, then signs in via the `session` cookie. Identity tokens expire in minutes; do not store them as a password. Link Apple to an existing account with `POST /user/oauth/add` using the same `method` and `token`.
 
+Google identity tokens work the same way. After a flow that yields a Google `id_token` (for example Google Identity Services on the client), POST it:
+
+	POST /user/auth
+	Form Data:
+		method: google
+		token: <idToken>
+
+The library validates the token with Google's tokeninfo endpoint and accepts it only when its `aud` equals the configured `GoogleClientID` and its `iss` is `accounts.google.com` or `https://accounts.google.com`. `GoogleClientID` is required even when you use only this token path: requests fail with 400 ("google client id not configured") until it is set. Prefer the `/user/oauth/login/google` redirect flow above, which binds the token to your client through the authorization-code exchange. Like Apple tokens, Google ID tokens are short-lived; do not store them as passwords. Link Google to an existing account with `POST /user/oauth/add` using the same `method` and `token`.
+
 3. SAML Interaction
 
 SAML requires a certificate and private key to sign requests. If columns `certificate` and `privatekey` are missing in the database, the library generates them automatically.

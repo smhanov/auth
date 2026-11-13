@@ -70,7 +70,7 @@ func verifyAppleIdentityToken(idToken string, audiences []string) (string, strin
 	if claims.Issuer != appleIssuer {
 		HTTPPanic(http.StatusBadRequest, "invalid apple identity token")
 	}
-	if !appleAudienceAllowed(claims.Audience, audiences) {
+	if !audienceAllowed(claims.Audience, audiences) {
 		HTTPPanic(http.StatusBadRequest, "invalid apple identity token")
 	}
 	if claims.Subject == "" {
@@ -84,7 +84,9 @@ func verifyAppleIdentityToken(idToken string, audiences []string) (string, strin
 	return claims.Subject, email, verified
 }
 
-func appleAudienceAllowed(tokenAud string, allowed []string) bool {
+// audienceAllowed reports whether tokenAud is one of the allowed
+// audience values.
+func audienceAllowed(tokenAud string, allowed []string) bool {
 	for _, a := range allowed {
 		if a == tokenAud {
 			return true
