@@ -166,9 +166,16 @@ func TestOauthUnverifiedEmailRejected(t *testing.T) {
 
 // TestOauthVerifiedEmailStillLinks checks that the same attack payload with
 // a provider-asserted verified email keeps working, and that the tokeninfo
-// string-typed email_verified claim is parsed correctly.
+// string-typed email_verified claim is parsed correctly. Because the
+// matched account has a password, this first link also silently clears the
+// stored password (see the first-link hardening); no email is sent.
 func TestOauthVerifiedEmailStillLinks(t *testing.T) {
-	db, client, victimID := createAccountWithSettingsThenSignOut(t, "victim@example.com", googleAuthSettings())
+	settings := googleAuthSettings()
+	var resetEmails []string
+	settings.SendEmailFn = func(email, token string) {
+		resetEmails = append(resetEmails, email)
+	}
+	db, client, victimID := createAccountWithSettingsThenSignOut(t, "victim@example.com", settings)
 
 	startProviderMock(t, googleTokenInfo("attacker-sub-999", "victim@example.com", true, googleClientID, "accounts.google.com"))
 
@@ -186,6 +193,12 @@ func TestOauthVerifiedEmailStillLinks(t *testing.T) {
 
 	if id := oauthRowUser(t, db, "google", "attacker-sub-999"); id != victimID {
 		t.Errorf("oauth row for attacker-sub-999 linked to userid %d, want %d", id, victimID)
+	}
+	if len(resetEmails) != 0 {
+		t.Errorf("reset emails sent during the silent first link: %v, want none", resetEmails)
+	}
+	if got := storedPasswordFor(t, db, "victim@example.com"); got != "" {
+		t.Errorf("stored password survived the silent first-link hardening")
 	}
 }
 

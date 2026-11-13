@@ -222,7 +222,7 @@ func validGoogleIssuer(issuer string) bool {
 	return issuer == "accounts.google.com" || issuer == "https://accounts.google.com"
 }
 
-func signInOauth(tx Tx, method string, foreignID string, email string, emailVerified bool) (int64, bool) {
+func (a *Handler) signInOauth(tx Tx, method string, foreignID string, email string, emailVerified bool) (int64, bool, bool) {
 
 	// Never use an email the provider has not verified as an account
 	// key: an attacker controlling an oauth identity that carries a
@@ -233,8 +233,12 @@ func signInOauth(tx Tx, method string, foreignID string, email string, emailVeri
 	}
 
 	email = strings.ToLower(email)
-	emailUserID := tx.GetUserByEmail(email)
+
+	// GetPassword returns the account matched by email together with
+	// its stored password in one query.
+	emailUserID, storedPassword := tx.GetPassword(email)
 	created := false
+	firstLink := false
 
 	// try to get the userid from oauth db
 	oauthUserID := tx.GetOauthUser(method, foreignID)
@@ -263,7 +267,23 @@ func signInOauth(tx Tx, method string, foreignID string, email string, emailVeri
 	if oauthUserID == 0 {
 		// create oauth entry
 		tx.AddOauthUser(method, foreignID, userid)
+
+		// First link of this oauth identity to an existing account that
+		// still has a password. Accounts created here are never email
+		// verified, so that password may belong to an attacker who
+		// pre-created the account with someone else's address to keep a
+		// working login once the real owner arrives. Disable it and sign
+		// the account out everywhere — silently; the caller reports the
+		// event via the "oauthlink" OnAuthEvent action so the app can
+		// notify the owner through its own channel. OAuth-created
+		// accounts store password="" and are not touched, and linking
+		// while already authenticated never reaches this branch.
+		if emailUserID != 0 && storedPassword != "" {
+			tx.UpdatePassword(emailUserID, "")
+			tx.DeleteSessions(emailUserID)
+			firstLink = true
+		}
 	}
 
-	return userid, created
+	return userid, created, firstLink
 }

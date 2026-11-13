@@ -31,7 +31,11 @@ type Settings struct {
 	SendEmailFn func(email string, url string)
 
 	// OnAuthEvent is called when a user signs in or authenticates.
-	// The action parameter will be one of "auth", "create", or "resetpassword".
+	// The action parameter will be one of "auth", "create", "resetpassword",
+	// or "oauthlink". "oauthlink" is sent when a new oauth identity is
+	// linked to an existing account for the first time; the library
+	// silently disables that account's password and ends its sessions, so
+	// this is the hook for apps that want to notify the owner themselves.
 	OnAuthEvent func(tx Tx, action string, userid int64, info UserInfo)
 
 	// Optionally override password hash from bcrypt default. You may override HashPassword,
@@ -437,6 +441,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 	var userid int64
 	var err error
 	var created bool
+	var firstLink bool
 
 	// check if we have to use SAML
 	metaData := tx.GetSamlIdentityProviderForUser(username)
@@ -454,7 +459,7 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 
 	if method != "" {
 		foreignID, foreignEmail, emailVerified := a.verifyOauth(method, token)
-		userid, created = signInOauth(tx, method, foreignID, foreignEmail, emailVerified)
+		userid, created, firstLink = a.signInOauth(tx, method, foreignID, foreignEmail, emailVerified)
 	} else {
 		var realPassword string
 		userid, realPassword = tx.GetPassword(username)
@@ -474,10 +479,14 @@ func (a *Handler) handleUserAuth(w http.ResponseWriter, req *http.Request) {
 	info := a.signInUser(tx, w, userid, created, IsRequestSecure(req))
 
 	if a.settings.OnAuthEvent != nil {
+		if firstLink {
+			a.settings.OnAuthEvent(tx, "oauthlink", userid, info)
+		}
 		a.settings.OnAuthEvent(tx, "auth", userid, info)
 	}
 
 	tx.Commit()
+
 	SendJSON(w, info)
 }
 

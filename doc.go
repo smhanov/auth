@@ -86,6 +86,21 @@ the address, the sign-in is rejected with 401 and no account is linked or
 created. Custom providers must implement VerifiedIdentityProvider to opt in
 to email matching, or return a placeholder address from FetchIdentity.
 
+Security note on first-time linking: accounts created by this library are not
+email verified, so a stored password proves nothing about who created the
+account. The first time a new OAuth identity is linked to an existing account
+by a provider-verified email, and that account still has a password, the
+password is silently removed and all existing sessions for the account are
+invalidated (the sign-in that performed the link keeps its new session). No
+notification email is sent by the library; OnAuthEvent receives an
+"oauthlink" action so the app can notify the owner through its own channel.
+This closes the
+pre-hijack attack where someone registers a victim's email with a password of
+their own and waits for the real owner to sign in with OAuth. Linking while
+already signed in (POST /user/oauth/add, or an OAuth callback that carries a
+session) never removes a password, and neither does signing in when the
+account has no password.
+
 There are two different redirect concepts in the OAuth flow:
 
   - `*RedirectURL` settings such as `GoogleRedirectURL` define the callback URL that the OAuth provider redirects back to.
@@ -395,6 +410,13 @@ To perform actions when users authenticate (e.g., logging, analytics, welcome em
 			// User reset their password
 			log.Printf("User %d reset password", userid)
 			// Send security notification email
+
+		case "oauthlink":
+			// A new OAuth identity was linked to this existing account for
+			// the first time. The stored password was silently removed and
+			// all other sessions were ended. Notify the owner here if your
+			// app wants to; the library does not send anything itself.
+			log.Printf("OAuth identity linked to account %d", userid)
 		}
 
 		// You can access the database within the transaction

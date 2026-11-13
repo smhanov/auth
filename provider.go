@@ -250,6 +250,7 @@ func (a *Handler) handleOAuthCallback(provider OAuthProvider, w http.ResponseWri
 
 	var userid int64
 	var created bool
+	var firstLink bool
 	if currentUserID != 0 {
 		// Link account to existing user
 		existingID := tx.GetOauthUser(providerName, foreignID)
@@ -260,7 +261,7 @@ func (a *Handler) handleOAuthCallback(provider OAuthProvider, w http.ResponseWri
 		userid = currentUserID
 	} else {
 		// Sign in or create user
-		userid, created = signInOauth(tx, providerName, foreignID, email, emailVerified)
+		userid, created, firstLink = a.signInOauth(tx, providerName, foreignID, email, emailVerified)
 	}
 
 	// Clear the state cookie
@@ -284,10 +285,14 @@ func (a *Handler) handleOAuthCallback(provider OAuthProvider, w http.ResponseWri
 			if created {
 				action = "create"
 			}
+			if firstLink {
+				a.settings.OnAuthEvent(tx, "oauthlink", userid, info)
+			}
 			a.settings.OnAuthEvent(tx, action, userid, info)
 		}
 
 		tx.Commit()
+
 		http.Redirect(w, r, next, http.StatusFound)
 	}
 }

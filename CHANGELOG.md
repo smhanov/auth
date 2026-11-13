@@ -37,6 +37,21 @@ versioned (tagged) release.
   HTTP 401 error on an unverified email — use the new `VerifyOauthVerified`
   to read the verification flag instead. Also, `POST /user/oauth/add` with
   `update_email=true` only honors a verified provider email.
+- Hardened first-time OAuth linking (the account pre-hijack shape of
+  CVE-2026-53516): when a *new* OAuth identity signs in and is matched to an
+  existing account by a provider-verified email, and that account still has a
+  password, the password is now silently removed and all existing sessions for
+  the account are invalidated — the linking sign-in itself keeps its fresh
+  session, and the library sends no notification email. This library never
+  verifies email addresses at signup, so a password stored on a pre-existing
+  account cannot be trusted to belong to the account owner; the attacker's
+  credential and live session now die the moment the real owner signs in with
+  OAuth. `OnAuthEvent` receives a new `"oauthlink"` action so apps can notify
+  the owner through their own channel. Users who legitimately used both
+  password and OAuth will need the forgot-password flow to set a password
+  again. Explicit linking while signed in (`POST /user/oauth/add`, or an OAuth
+  callback that carries a session) never removes a password, accounts without
+  a password are untouched, and SAML linking is unchanged.
 - Google ID tokens presented to the legacy token path (`POST /user/auth` and
   `POST /user/oauth/add` with `method=google`) are now bound to this
   deployment: the token's `aud` claim must equal the configured
